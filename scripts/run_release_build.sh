@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT_DIR"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
 
-echo "==> Running Release build"
+DESTINATION="${DESTINATION:-generic/platform=iOS}"
+
 xcodebuild \
-  -project PeriodTracker.xcodeproj \
-  -scheme PeriodTracker \
+  -project SadieMarie.xcodeproj \
+  -scheme SadieMarie \
   -configuration Release \
-  -destination 'generic/platform=iOS Simulator' \
+  -destination "$DESTINATION" \
   build
