@@ -9,6 +9,9 @@
 /* Begin PBXBuildFile section */
 		731C3BC02FC523B200B84A2E /* ClerkKit in Frameworks */ = {isa = PBXBuildFile; productRef = 731C3BBF2FC523B200B84A2E /* ClerkKit */; };
 		731C3BC22FC523B200B84A2E /* ClerkKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = 731C3BC12FC523B200B84A2E /* ClerkKitUI */; };
+		73358C852F8ECC5800DFA772 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 73358C842F8ECC5800DFA772 /* WidgetKit.framework */; };
+		73358C872F8ECC5800DFA772 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 73358C862F8ECC5800DFA772 /* SwiftUI.framework */; };
+		73358C962F8ECC5A00DFA772 /* SadieMarieWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 73358C822F8ECC5800DFA772 /* SadieMarieWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		73HC00032FC6000100B84A2E /* HorizonCalendar in Frameworks */ = {isa = PBXBuildFile; productRef = 73HC00022FC6000100B84A2E /* HorizonCalendar */; };
 		B10000112F7640EF00C6ADEE /* SadieMarieTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000012F7640EF00C6ADEE /* SadieMarieTests.swift */; };
 		B10000132F7640EF00C6ADEE /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10000052F7640EF00C6ADEE /* XCTest.framework */; };
@@ -16,6 +19,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		73358C942F8ECC5A00DFA772 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 735A66EB2F7640EF00C6ADEE /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 73358C812F8ECC5800DFA772;
+			remoteInfo = SadieMarieWidgets;
+		};
 		B10000511F7640EF00C6ADEE /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 735A66EB2F7640EF00C6ADEE /* Project object */;
@@ -33,9 +43,25 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		73358C9B2F8ECC5A00DFA772 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				73358C962F8ECC5A00DFA772 /* SadieMarieWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		73358C822F8ECC5800DFA772 /* SadieMarieWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SadieMarieWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		73358C842F8ECC5800DFA772 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		73358C862F8ECC5800DFA772 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		73358CA32F8ECD9400DFA772 /* SadieMarieWidgetsExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SadieMarieWidgetsExtension.entitlements; sourceTree = "<group>"; };
+		73358CA42F8EDFD600DFA772 /* SadieMarieWidgetsExtensionDebug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SadieMarieWidgetsExtensionDebug.entitlements; sourceTree = "<group>"; };
 		735A66F32F7640EF00C6ADEE /* SadieMarie.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SadieMarie.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10000012F7640EF00C6ADEE /* SadieMarieTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SadieMarieTests.swift; sourceTree = "<group>"; };
 		B10000032F7640EF00C6ADEE /* SadieMarieTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SadieMarieTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -53,9 +79,24 @@
 			);
 			target = 735A66F22F7640EF00C6ADEE /* SadieMarie */;
 		};
+		73358C9A2F8ECC5A00DFA772 /* Exceptions for "SadieMarieWidgets" folder in "SadieMarieWidgets" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 73358C812F8ECC5800DFA772 /* SadieMarieWidgets */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		73358C882F8ECC5800DFA772 /* SadieMarieWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				73358C9A2F8ECC5A00DFA772 /* Exceptions for "SadieMarieWidgets" folder in "SadieMarieWidgets" target */,
+			);
+			path = SadieMarieWidgets;
+			sourceTree = "<group>";
+		};
 		735A66F52F7640EF00C6ADEE /* SadieMarie */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -67,6 +108,15 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		73358C7F2F8ECC5800DFA772 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				73358C872F8ECC5800DFA772 /* SwiftUI.framework in Frameworks */,
+				73358C852F8ECC5800DFA772 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		735A66F02F7640EF00C6ADEE /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -104,11 +154,24 @@
 			name = "Recovered References";
 			sourceTree = "<group>";
 		};
+		73358C832F8ECC5800DFA772 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				73358C842F8ECC5800DFA772 /* WidgetKit.framework */,
+				73358C862F8ECC5800DFA772 /* SwiftUI.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		735A66EA2F7640EF00C6ADEE = {
 			isa = PBXGroup;
 			children = (
+				73358CA42F8EDFD600DFA772 /* SadieMarieWidgetsExtensionDebug.entitlements */,
+				73358CA32F8ECD9400DFA772 /* SadieMarieWidgetsExtension.entitlements */,
 				735A66F52F7640EF00C6ADEE /* SadieMarie */,
 				B10000212F7640EF00C6ADEE /* SadieMarieTests */,
+				73358C882F8ECC5800DFA772 /* SadieMarieWidgets */,
+				73358C832F8ECC5800DFA772 /* Frameworks */,
 				735A66F42F7640EF00C6ADEE /* Products */,
 				73358BE12F7F4B1600DFA772 /* Recovered References */,
 			);
@@ -120,6 +183,7 @@
 				735A66F32F7640EF00C6ADEE /* SadieMarie.app */,
 				B10000032F7640EF00C6ADEE /* SadieMarieTests.xctest */,
 				B10000042F7640EF00C6ADEE /* SadieMarieUITests.xctest */,
+				73358C822F8ECC5800DFA772 /* SadieMarieWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -135,6 +199,28 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		73358C812F8ECC5800DFA772 /* SadieMarieWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 73358C972F8ECC5A00DFA772 /* Build configuration list for PBXNativeTarget "SadieMarieWidgets" */;
+			buildPhases = (
+				73358C7E2F8ECC5800DFA772 /* Sources */,
+				73358C7F2F8ECC5800DFA772 /* Frameworks */,
+				73358C802F8ECC5800DFA772 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				73358C882F8ECC5800DFA772 /* SadieMarieWidgets */,
+			);
+			name = SadieMarieWidgets;
+			packageProductDependencies = (
+			);
+			productName = SadieMarieWidgets;
+			productReference = 73358C822F8ECC5800DFA772 /* SadieMarieWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		735A66F22F7640EF00C6ADEE /* SadieMarie */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 735A66FE2F7640F000C6ADEE /* Build configuration list for PBXNativeTarget "SadieMarie" */;
@@ -142,10 +228,12 @@
 				735A66EF2F7640EF00C6ADEE /* Sources */,
 				735A66F02F7640EF00C6ADEE /* Frameworks */,
 				735A66F12F7640EF00C6ADEE /* Resources */,
+				73358C9B2F8ECC5A00DFA772 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				73358C952F8ECC5A00DFA772 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				735A66F52F7640EF00C6ADEE /* SadieMarie */,
@@ -250,11 +338,19 @@
 				735A66F22F7640EF00C6ADEE /* SadieMarie */,
 				B10000312F7640EF00C6ADEE /* SadieMarieTests */,
 				B10000322F7640EF00C6ADEE /* SadieMarieUITests */,
+				73358C812F8ECC5800DFA772 /* SadieMarieWidgets */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		73358C802F8ECC5800DFA772 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		735A66F12F7640EF00C6ADEE /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -279,6 +375,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		73358C7E2F8ECC5800DFA772 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		735A66EF2F7640EF00C6ADEE /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -304,6 +407,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		73358C952F8ECC5A00DFA772 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 73358C812F8ECC5800DFA772 /* SadieMarieWidgets */;
+			targetProxy = 73358C942F8ECC5A00DFA772 /* PBXContainerItemProxy */;
+		};
 		B10000521F7640EF00C6ADEE /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 735A66F22F7640EF00C6ADEE /* SadieMarie */;
@@ -317,6 +425,70 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		73358C982F8ECC5A00DFA772 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = SadieMarieWidgetsExtensionDebug.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 6;
+				DEVELOPMENT_TEAM = F54JWSP8S3;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SadieMarieWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Sadie Marie Widget";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.5;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.lj-buchmiller.SadieMarie.dev.SadieMarieWidgets";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		73358C992F8ECC5A00DFA772 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = SadieMarieWidgetsExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 6;
+				DEVELOPMENT_TEAM = F54JWSP8S3;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SadieMarieWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Sadie Marie Widget";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.5;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.lj-buchmiller.SadieMarie.SadieMarieWidgets";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		735A66FC2F7640F000C6ADEE /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -543,7 +715,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Dev Cycle Tracker.app/Dev Cycle Tracker";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SadieMarie.app/SadieMarie";
 				TEST_TARGET_NAME = SadieMarie;
 			};
 			name = Debug;
@@ -567,7 +739,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OV Cycle Tracker.app/OV Cycle Tracker";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SadieMarie.app/SadieMarie";
 				TEST_TARGET_NAME = SadieMarie;
 			};
 			name = Release;
@@ -617,6 +789,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		73358C972F8ECC5A00DFA772 /* Build configuration list for PBXNativeTarget "SadieMarieWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				73358C982F8ECC5A00DFA772 /* Debug */,
+				73358C992F8ECC5A00DFA772 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		735A66EE2F7640EF00C6ADEE /* Build configuration list for PBXProject "SadieMarie" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
