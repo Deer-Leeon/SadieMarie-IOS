@@ -1,0 +1,17 @@
+# Xcode
+DerivedData/
+*.xcresult
+*.xccheckout
+*.moved-aside
+*.xcuserstate
+**/xcuserdata/
+
+# SwiftPM
+.build/
+
+# Local secrets (copy from template)
+SadieMarie/Config/Secrets.xcconfig
+SadieMarie/Config/LocalOverrides.xcconfig
+
+# macOS
+.DS_Store

@@ -1,0 +1,78 @@
+name: iOS CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ios-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gates:
+    name: Quality Gates
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Run quality gates
+        run: bash scripts/quality_gates.sh
+
+  build-debug:
+    name: Debug Build
+    runs-on: macos-15
+    needs: quality-gates
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Build (Debug)
+        run: bash scripts/run_debug_build.sh
+
+  build-release:
+    name: Release Build
+    runs-on: macos-15
+    needs: quality-gates
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Build (Release)
+        run: bash scripts/run_release_build.sh
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: macos-15
+    needs: quality-gates
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Run tests
+        run: bash scripts/run_unit_tests.sh
