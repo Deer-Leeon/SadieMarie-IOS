@@ -6,12 +6,10 @@ import ClerkKit
 /// (notification preferences, theme, business profile, etc.) by
 /// extending the outer `List`.
 ///
-/// Note: this view isn't wired into `RootTabView` yet — the five
-/// admin tabs are Bookings / Availability / Clients / Website /
-/// Services. Surface it as a toolbar button or a sheet on whichever
-/// admin screen feels right.
+/// Opened from the Bookings toolbar gear.
 struct SettingsView: View {
     @Environment(Clerk.self) private var clerk
+    @Environment(\.dismiss) private var dismiss
 
     @State private var isSigningOut = false
     @State private var showingSignOutConfirmation = false
@@ -55,6 +53,12 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
+                }
+            }
             .confirmationDialog(
                 "Are you sure you want to log out?",
                 isPresented: $showingSignOutConfirmation,

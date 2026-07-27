@@ -16,8 +16,9 @@ struct MonthAppointmentChip: View {
     }
 
     private var foreground: Color {
-        if BookingDisplay.usesServiceColorBackground(appointment) {
-            return AdminTheme.onServiceColorText
+        if BookingDisplay.usesServiceColorBackground(appointment),
+           let colors = BookingDisplay.serviceColor(for: appointment) {
+            return colors.text
         }
         if BookingDisplay.isPending(appointment) {
             return AdminTheme.awaitingPaymentText

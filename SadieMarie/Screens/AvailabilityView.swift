@@ -11,26 +11,38 @@ struct AvailabilityView: View {
             ZStack {
                 AdminTheme.cream.ignoresSafeArea()
 
-                ScrollView(.vertical, showsIndicators: true) {
-                    VStack(alignment: .leading, spacing: 18) {
-                        headerBlock
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: true) {
+                        VStack(alignment: .leading, spacing: 18) {
+                            headerBlock
 
-                        if let errorMessage = viewModel.errorMessage {
-                            errorBanner(errorMessage)
+                            if let errorMessage = viewModel.errorMessage {
+                                errorBanner(errorMessage)
+                            }
+
+                            if let success = viewModel.saveSuccessMessage {
+                                successBanner(success)
+                            }
+
+                            if viewModel.hasInvalidOverrides {
+                                errorBanner("Custom override hours must end after they start.")
+                            }
+
+                            AvailabilityWeeklySection(viewModel: viewModel)
+                            AvailabilityOverridesSection(viewModel: viewModel)
                         }
-
-                        if let success = viewModel.saveSuccessMessage {
-                            successBanner(success)
-                        }
-
-                        AvailabilityWeeklySection(viewModel: viewModel)
-                        AvailabilityOverridesSection(viewModel: viewModel)
+                        .padding(.horizontal, AdminTheme.Spacing.listHorizontal)
+                        .padding(.top, 4)
+                        .padding(.bottom, 12)
                     }
-                    .padding(.horizontal, AdminTheme.Spacing.listHorizontal)
-                    .padding(.top, 4)
-                    .padding(.bottom, 12)
+                    .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+                    .onChange(of: viewModel.highlightedOverrideId) { _, id in
+                        guard let id else { return }
+                        withAnimation(.easeInOut(duration: 0.35)) {
+                            proxy.scrollTo(id, anchor: .center)
+                        }
+                    }
                 }
-                .scrollBounceBehavior(.basedOnSize, axes: .vertical)
 
                 if viewModel.isLoading {
                     loadingOverlay
@@ -42,6 +54,7 @@ struct AvailabilityView: View {
             .safeAreaInset(edge: .bottom) {
                 AvailabilitySaveBar(
                     hasChanges: viewModel.hasUnsavedChanges,
+                    hasInvalidOverrides: viewModel.hasInvalidOverrides,
                     isSaving: viewModel.isSaving,
                     action: { Task { await viewModel.save() } }
                 )

@@ -16,6 +16,7 @@ final class ClientProfileViewModel {
     private(set) var isBootstrapping = false
     private(set) var isLoadingDossier = false
     private(set) var isLoadingPhotos = false
+    private(set) var isUploadingPhoto = false
     private(set) var isSavingNotes = false
     private(set) var isSavingIdentity = false
 
@@ -25,7 +26,20 @@ final class ClientProfileViewModel {
     private(set) var photosError: String?
     private(set) var identityError: String?
 
+    /// Legacy flag — email is optional; kept false so bootstrap no longer blocks on email.
+    private(set) var awaitingBootstrapEmail = false
+    var bootstrapEmailDraft = ""
+    var bootstrapEmailTouched = false
+
     var notesDirty: Bool { notes != savedNotes }
+
+    var bootstrapEmailInvalid: Bool {
+        bootstrapEmailTouched && !ClientEmail.isValidOptional(bootstrapEmailDraft)
+    }
+
+    var canSubmitBootstrapEmail: Bool {
+        ClientEmail.isValidOptional(bootstrapEmailDraft)
+    }
 
     var displayName: String {
         client?.displayName ?? "Client"
@@ -42,8 +56,9 @@ final class ClientProfileViewModel {
         switch entry {
         case .directory:
             await loadDossier()
-        case .fromAppointment:
-            await bootstrapIfNeeded()
+        case .fromAppointment(let appointment):
+            let email = ClientEmail.validatedOptional(appointment.clientEmail ?? "")
+            await bootstrapClient(from: appointment, email: email)
             if client != nil {
                 await loadDossier()
             }
@@ -56,6 +71,10 @@ final class ClientProfileViewModel {
 
     func loadPhotosIfNeeded() async {
         guard photos.isEmpty, !isLoadingPhotos else { return }
+        await reloadPhotos()
+    }
+
+    func reloadPhotos() async {
         guard let clientId = client?.id else { return }
 
         isLoadingPhotos = true
@@ -66,6 +85,46 @@ final class ClientProfileViewModel {
             photos = try await AdminAPIClient.shared.fetchClientPhotos(id: clientId)
         } catch {
             photosError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    func uploadPhoto(data: Data, filename: String, mimeType: String) async -> Bool {
+        guard let clientId = client?.id else { return false }
+
+        isUploadingPhoto = true
+        photosError = nil
+        defer { isUploadingPhoto = false }
+
+        do {
+            let photo = try await AdminAPIClient.shared.uploadClientPhoto(
+                id: clientId,
+                imageData: data,
+                filename: filename,
+                mimeType: mimeType
+            )
+            photos.insert(photo, at: 0)
+            return true
+        } catch {
+            photosError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            return false
+        }
+    }
+
+    func deletePhoto(_ photo: ClientPhoto) async -> Bool {
+        guard let clientId = client?.id else { return false }
+
+        photosError = nil
+        do {
+            try await AdminAPIClient.shared.deleteClientPhoto(
+                id: clientId,
+                photoId: photo.id,
+                blobUrl: photo.blobUrl
+            )
+            photos.removeAll { $0.id == photo.id }
+            return true
+        } catch {
+            photosError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            return false
         }
     }
 
@@ -91,8 +150,33 @@ final class ClientProfileViewModel {
         notes = text
     }
 
+    func submitBootstrapEmail() async -> Bool {
+        bootstrapEmailTouched = true
+        guard ClientEmail.isValidOptional(bootstrapEmailDraft) else {
+            bootstrapError = ClientEmail.validationMessage
+            return false
+        }
+        guard case .fromAppointment(let appointment) = entry else { return false }
+
+        await bootstrapClient(
+            from: appointment,
+            email: ClientEmail.validatedOptional(bootstrapEmailDraft)
+        )
+        guard client != nil else { return false }
+
+        awaitingBootstrapEmail = false
+        await loadDossier()
+        return true
+    }
+
     func saveIdentity(firstName: String?, lastName: String?, email: String?) async -> Bool {
         guard let clientId = client?.id else { return false }
+
+        if let email, !ClientEmail.isValidOptional(email) {
+            identityError = ClientEmail.validationMessage
+            return false
+        }
+        let validatedEmail = email.flatMap { ClientEmail.validatedOptional($0) }
 
         isSavingIdentity = true
         identityError = nil
@@ -104,11 +188,14 @@ final class ClientProfileViewModel {
                 payload: ClientIdentityPayload(
                     firstName: firstName,
                     lastName: lastName,
-                    email: email
+                    email: validatedEmail
                 )
             )
             client = mergeClient(updated)
             return true
+        } catch let error as AdminAPIError {
+            identityError = AdminAPIResponseParser.clientEmailErrorMessage(from: error)
+            return false
         } catch {
             identityError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             return false
@@ -117,9 +204,8 @@ final class ClientProfileViewModel {
 
     // MARK: - Private
 
-    private func bootstrapIfNeeded() async {
+    private func bootstrapClient(from appointment: Appointment, email: String?) async {
         guard client == nil else { return }
-        guard case .fromAppointment(let appointment) = entry else { return }
 
         let phone = appointment.clientPhone?.filter(\.isNumber) ?? ""
         guard !phone.isEmpty else {
@@ -136,8 +222,10 @@ final class ClientProfileViewModel {
                 phone: phone,
                 firstName: appointment.clientFirstName,
                 lastName: appointment.clientLastName,
-                email: appointment.clientEmail
+                email: email
             )
+        } catch let error as AdminAPIError {
+            bootstrapError = AdminAPIResponseParser.clientEmailErrorMessage(from: error)
         } catch {
             bootstrapError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
@@ -185,7 +273,10 @@ final class ClientProfileViewModel {
             stats: ClientCrmStats(
                 bookingCount: crmStats.totalBookings,
                 ltv: crmStats.lifetimeValue
-            )
+            ),
+            strikeCount: updated.strikeCount ?? client?.strikeCount,
+            hasConsented: updated.hasConsented ?? client?.hasConsented,
+            consentFormUrl: updated.consentFormUrl ?? client?.consentFormUrl
         )
     }
 }

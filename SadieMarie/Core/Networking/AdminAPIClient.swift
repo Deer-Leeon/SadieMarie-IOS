@@ -367,7 +367,7 @@ actor AdminAPIClient {
     /// Builds `…/api/admin/<endpoint>`. Uses `appendingPathComponent` so a
     /// relative segment like `"appointments"` does not replace the `admin`
     /// path segment (which `URL(string:relativeTo:)` would do).
-    private func resolveURL(for endpoint: String) throws -> URL {
+    func resolveURL(for endpoint: String) throws -> URL {
         let trimmed = endpoint.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard !trimmed.isEmpty else {
             throw AdminAPIError.invalidEndpoint(endpoint)

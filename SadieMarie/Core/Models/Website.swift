@@ -44,9 +44,10 @@ struct SiteImageSlot: Codable, Identifiable, Hashable, Equatable, Sendable {
                 )
             )
         }
-        // Settings API: `image_url` → `imageUrl`. Upload API: `url`.
+        // Settings API: `image_url` (snake_case decoder → `imageUrl`). Upload API: `url`.
         imageURL =
             try container.decodeIfPresent(String.self, forKey: .imageURL)
+            ?? container.decodeIfPresent(String.self, forKey: .imageURLSnake)
             ?? container.decodeIfPresent(String.self, forKey: .uploadURL)
         caption = try container.decodeIfPresent(String.self, forKey: .caption)
     }
@@ -61,6 +62,7 @@ struct SiteImageSlot: Codable, Identifiable, Hashable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case imageURL = "imageUrl"
+        case imageURLSnake = "image_url"
         case uploadURL = "url"
         case caption
     }
@@ -311,11 +313,31 @@ struct WebsiteSlotItem: Identifiable, Hashable, Sendable {
     var id: String { meta.id.rawValue }
 
     var imageURL: URL? {
-        guard let raw = slot.imageURL?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !raw.isEmpty else { return nil }
-        if let url = URL(string: raw) { return url }
-        if raw.hasPrefix("//") { return URL(string: "https:\(raw)") }
-        return URL(string: "https://www.sadiemarie.co\(raw.hasPrefix("/") ? raw : "/\(raw)")")
+        guard let raw = slot.imageURL else { return nil }
+        return Self.normalizedImageURL(from: raw)
+    }
+
+    /// Resolves CMS image strings to absolute HTTPS URLs (blob CDN, protocol-relative, site-relative).
+    static func normalizedImageURL(from raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.hasPrefix("//") {
+            return URL(string: "https:\(trimmed)")
+        }
+
+        if let url = URL(string: trimmed), let host = url.host, !host.isEmpty {
+            if let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" {
+                return url
+            }
+        }
+
+        if !trimmed.contains("://"), trimmed.contains(".") {
+            return URL(string: "https://\(trimmed)")
+        }
+
+        let path = trimmed.hasPrefix("/") ? trimmed : "/\(trimmed)"
+        return URL(string: "https://www.sadiemarie.co\(path)")
     }
 
     var isEmpty: Bool { imageURL == nil }

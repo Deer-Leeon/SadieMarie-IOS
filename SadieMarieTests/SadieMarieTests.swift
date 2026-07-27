@@ -52,6 +52,7 @@ final class SadieMarieTests: XCTestCase {
         let data = try request.encodedJSON()
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         XCTAssertEqual(json?["scheduleId"] as? Int, 42)
+        XCTAssertNil(json?["schedule_id"])
         let block = (json?["availability"] as? [[String: Any]])?.first
         XCTAssertEqual(block?["startTime"] as? String, "09:00")
         XCTAssertEqual(block?["endTime"] as? String, "17:00")
@@ -155,6 +156,110 @@ final class SadieMarieTests: XCTestCase {
         XCTAssertEqual(blocks[0].days, [3])
     }
 
+    func testBuildOverridesPayloadEncodesUnavailableAsMidnightPair() {
+        let day = AvailabilityTimeFormat.date(fromYYYYMMDD: "2026-05-25")!
+        let row = OverrideRow.make(date: day, unavailable: true)
+        let payload = AvailabilityViewModel.buildOverridesPayload(from: [row])
+
+        XCTAssertEqual(payload.count, 1)
+        XCTAssertEqual(payload[0].date, "2026-05-25")
+        XCTAssertEqual(payload[0].startTime, "00:00")
+        XCTAssertEqual(payload[0].endTime, "00:00")
+    }
+
+    func testBuildOverridesPayloadEncodesCustomHours() {
+        let day = AvailabilityTimeFormat.date(fromYYYYMMDD: "2026-05-26")!
+        let row = OverrideRow.make(
+            date: day,
+            unavailable: false,
+            start: AvailabilityTimeFormat.time(hour: 10, minute: 0, on: day),
+            end: AvailabilityTimeFormat.time(hour: 14, minute: 30, on: day)
+        )
+        let payload = AvailabilityViewModel.buildOverridesPayload(from: [row])
+
+        XCTAssertEqual(payload[0].startTime, "10:00")
+        XCTAssertEqual(payload[0].endTime, "14:30")
+    }
+
+    func testBuildInitialOverridesTreatsEqualTimesAsUnavailableWithDefaults() {
+        let api = [
+            ScheduleOverride(date: "2026-05-30", startTime: "00:00", endTime: "00:00"),
+            ScheduleOverride(date: "2026-06-01", startTime: "10:00", endTime: "14:00"),
+        ]
+        let rows = AvailabilityViewModel.buildInitialOverrides(from: api)
+
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertTrue(rows[0].unavailable)
+        XCTAssertEqual(AvailabilityTimeFormat.hhmm(from: rows[0].start), "09:00")
+        XCTAssertEqual(AvailabilityTimeFormat.hhmm(from: rows[0].end), "17:00")
+        XCTAssertFalse(rows[1].unavailable)
+        XCTAssertEqual(AvailabilityTimeFormat.hhmm(from: rows[1].start), "10:00")
+        XCTAssertEqual(AvailabilityTimeFormat.hhmm(from: rows[1].end), "14:00")
+    }
+
+    func testSortedOverridesOrdersByDateThenId() {
+        let dayA = AvailabilityTimeFormat.date(fromYYYYMMDD: "2026-05-20")!
+        let dayB = AvailabilityTimeFormat.date(fromYYYYMMDD: "2026-05-10")!
+        let rows = [
+            OverrideRow.make(id: "z", date: dayA, unavailable: true),
+            OverrideRow.make(id: "b", date: dayB, unavailable: true),
+            OverrideRow.make(id: "a", date: dayB, unavailable: false),
+        ]
+        let sorted = AvailabilityViewModel.sortedOverrides(rows)
+        XCTAssertEqual(sorted.map(\.id), ["a", "b", "z"])
+        XCTAssertEqual(
+            sorted.map { AvailabilityTimeFormat.yyyyMMdd(from: $0.date) },
+            ["2026-05-10", "2026-05-10", "2026-05-20"]
+        )
+    }
+
+    func testOverrideRowRejectsInvalidCustomHours() {
+        let day = AvailabilityTimeFormat.date(fromYYYYMMDD: "2026-05-25")!
+        let invalid = OverrideRow.make(
+            date: day,
+            unavailable: false,
+            start: AvailabilityTimeFormat.time(hour: 15, minute: 0, on: day),
+            end: AvailabilityTimeFormat.time(hour: 10, minute: 0, on: day)
+        )
+        XCTAssertFalse(invalid.hasValidCustomHours)
+
+        let valid = OverrideRow.make(
+            date: day,
+            unavailable: false,
+            start: AvailabilityTimeFormat.time(hour: 10, minute: 0, on: day),
+            end: AvailabilityTimeFormat.time(hour: 15, minute: 0, on: day)
+        )
+        XCTAssertTrue(valid.hasValidCustomHours)
+        XCTAssertTrue(OverrideRow.make(date: day, unavailable: true).hasValidCustomHours)
+    }
+
+    func testScheduleOverrideEncodesTimesAlways() throws {
+        let override = ScheduleOverride(date: "2026-05-30", startTime: "00:00", endTime: "00:00")
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(override)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(json?["date"] as? String, "2026-05-30")
+        XCTAssertEqual(json?["startTime"] as? String, "00:00")
+        XCTAssertEqual(json?["endTime"] as? String, "00:00")
+    }
+
+    func testAvailabilityDayOpenTreatsMidnightPairAsClosed() {
+        let response = AvailabilityResponse(
+            schedule: AvailabilitySchedule(
+                id: 1,
+                timeZone: "America/Denver",
+                availability: [
+                    ScheduleAvailabilityBlock(days: [1], startTime: "09:00", endTime: "17:00"),
+                ]
+            ),
+            overrides: [
+                ScheduleOverride(date: "2026-05-25", startTime: "00:00", endTime: "00:00"),
+            ]
+        )
+        let day = AvailabilityTimeFormat.date(fromYYYYMMDD: "2026-05-25")!
+        XCTAssertFalse(AvailabilityDayOpen.isOpenWorkingDay(response: response, on: day))
+    }
+
     func testClientFormattedPhoneTenDigits() {
         let client = Client(id: "1", phone: "8015551234")
         XCTAssertEqual(client.formattedPhone, "(801) 555-1234")
@@ -227,6 +332,17 @@ final class SadieMarieTests: XCTestCase {
         XCTAssertEqual(merged.first?.slot.imageURL, "https://example.com/h.jpg")
         XCTAssertEqual(merged.first?.imageURL?.absoluteString, "https://example.com/h.jpg")
         XCTAssertTrue(merged.contains { $0.id == WebsiteSlotId.portfolio5.rawValue })
+    }
+
+    func testWebsiteSlotItemNormalizesSchemelessBlobURL() {
+        let blobHost = "cdn.example.com/site-images/home_hero/upload.jpg"
+        let url = WebsiteSlotItem.normalizedImageURL(from: blobHost)
+        XCTAssertEqual(url?.absoluteString, "https://\(blobHost)")
+    }
+
+    func testWebsiteSlotItemNormalizesProtocolRelativeURL() {
+        let url = WebsiteSlotItem.normalizedImageURL(from: "//cdn.example.com/hero.jpg")
+        XCTAssertEqual(url?.absoluteString, "https://cdn.example.com/hero.jpg")
     }
 
     func testServiceGroupingNestsChildrenUnderGroups() {
@@ -374,17 +490,25 @@ final class SadieMarieTests: XCTestCase {
         XCTAssertEqual(laidOut.first?.totalCols, 2)
     }
 
-    func testServiceColorKeepsWhiteAppointmentText() {
-        let apt = Appointment(
+    func testServiceColorPastelUsesBlackText() {
+        let pastel = Appointment(
             id: "1",
+            status: "confirmed",
+            serviceColor: "#FEDCEA"
+        )
+        let pastelColors = BookingDisplay.serviceColor(for: pastel)!
+        XCTAssertEqual(pastelColors.text, .black)
+
+        let mid = Appointment(
+            id: "2",
             status: "confirmed",
             serviceColor: "#B8E6B8"
         )
-        let colors = BookingDisplay.serviceColor(for: apt)!
-        XCTAssertEqual(colors.text, AdminTheme.onServiceColorText)
+        let midColors = BookingDisplay.serviceColor(for: mid)!
+        XCTAssertEqual(midColors.text, AdminTheme.onServiceColorText)
 
-        let rowColors = BookingDisplay.rowTextColors(for: apt)
-        XCTAssertEqual(rowColors.primary, AdminTheme.onServiceColorText)
+        let rowColors = BookingDisplay.rowTextColors(for: pastel)
+        XCTAssertEqual(rowColors.primary, .black)
     }
 
     func testSiteImageSlotDisplayCaptionDefaultsAndHidden() {
@@ -433,5 +557,49 @@ final class SadieMarieTests: XCTestCase {
         XCTAssertTrue(text.contains("image/jpeg"))
         XCTAssertTrue(text.contains("name=\"caption\""))
         XCTAssertTrue(text.hasSuffix("--TestBoundary--\r\n"))
+    }
+
+    func testClientEmailNormalizesAndValidates() {
+        XCTAssertEqual(ClientEmail.normalized("  Jane@Example.COM "), "jane@example.com")
+        XCTAssertTrue(ClientEmail.isValid("jane@example.com"))
+        XCTAssertFalse(ClientEmail.isValid(""))
+        XCTAssertFalse(ClientEmail.isValid("not-an-email"))
+        XCTAssertFalse(ClientEmail.isValid("bookings+18015551234@example.com"))
+        XCTAssertFalse(ClientEmail.isValid("user@placeholder.sadiemarie.co"))
+    }
+
+    func testManualBookingCreatePayloadAlwaysIncludesClientEmail() throws {
+        let payload = ManualBookingCreatePayload(
+            eventTypeId: 123,
+            start: "2026-06-01T15:00:00",
+            clientFirstName: "Jane",
+            clientLastName: "Doe",
+            clientName: "Jane Doe",
+            clientEmail: "jane@example.com",
+            clientPhone: "18015551234"
+        )
+        let json = try JSONSerialization.jsonObject(with: payload.encodedJSON()) as? [String: Any]
+        XCTAssertEqual(json?["clientEmail"] as? String, "jane@example.com")
+    }
+
+    func testBootstrapClientBodyAlwaysIncludesEmail() throws {
+        let body = BootstrapClientBody(
+            phone: "18015551234",
+            firstName: "Jane",
+            lastName: "Doe",
+            email: "jane@example.com"
+        )
+        let json = try JSONSerialization.jsonObject(with: body.encodedJSON()) as? [String: Any]
+        XCTAssertEqual(json?["email"] as? String, "jane@example.com")
+    }
+
+    func testClientIdentityPayloadAlwaysIncludesEmail() throws {
+        let payload = ClientIdentityPayload(
+            firstName: "Jane",
+            lastName: "Doe",
+            email: "jane@example.com"
+        )
+        let json = try JSONSerialization.jsonObject(with: payload.encodedJSON()) as? [String: Any]
+        XCTAssertEqual(json?["email"] as? String, "jane@example.com")
     }
 }

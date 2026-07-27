@@ -10,6 +10,15 @@ struct EditClientSheet: View {
     @State private var firstName: String = ""
     @State private var lastName: String = ""
     @State private var email: String = ""
+    @State private var emailTouched = false
+
+    private var emailInvalid: Bool {
+        emailTouched && !ClientEmail.isValidOptional(email)
+    }
+
+    private var canSave: Bool {
+        ClientEmail.isValidOptional(email) && !isSaving
+    }
 
     var body: some View {
         NavigationStack {
@@ -35,11 +44,21 @@ struct EditClientSheet: View {
                             .textInputAutocapitalization(.words)
                     }
 
-                    fieldBlock(title: "Email") {
-                        TextField("Email", text: $email)
+                    fieldBlock(title: "Email (optional)", isInvalid: emailInvalid) {
+                        TextField("jane@example.com", text: $email)
                             .textInputAutocapitalization(.never)
                             .keyboardType(.emailAddress)
                             .autocorrectionDisabled()
+                            .textContentType(.emailAddress)
+                            .onChange(of: email) { _, _ in
+                                emailTouched = true
+                            }
+                    }
+
+                    if emailInvalid {
+                        Text(ClientEmail.validationMessage)
+                            .font(AdminTheme.fontAdminSans(size: 12))
+                            .foregroundStyle(Color.semanticRed)
                     }
 
                     if let phone = client.phone, !phone.isEmpty {
@@ -66,15 +85,17 @@ struct EditClientSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
+                        emailTouched = true
+                        guard ClientEmail.isValidOptional(email) else { return }
                         onSave(
                             trimmedOrNil(firstName),
                             trimmedOrNil(lastName),
-                            trimmedOrNil(email)?.lowercased()
+                            ClientEmail.validatedOptional(email)
                         )
                     }
                     .font(AdminTheme.fontAdminSans(size: 15, weight: .semibold))
-                    .foregroundStyle(AdminTheme.stone900)
-                    .disabled(isSaving)
+                    .foregroundStyle(canSave ? AdminTheme.stone900 : AdminTheme.stone500)
+                    .disabled(!canSave)
                 }
             }
             .onAppear {
@@ -89,7 +110,11 @@ struct EditClientSheet: View {
     }
 
     @ViewBuilder
-    private func fieldBlock(title: String, @ViewBuilder content: () -> some View) -> some View {
+    private func fieldBlock(
+        title: String,
+        isInvalid: Bool = false,
+        @ViewBuilder content: () -> some View
+    ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
@@ -105,7 +130,7 @@ struct EditClientSheet: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10)
-                        .stroke(AdminTheme.stone200, lineWidth: 1)
+                        .stroke(isInvalid ? Color.semanticRed.opacity(0.5) : AdminTheme.stone200, lineWidth: 1)
                 )
         }
     }

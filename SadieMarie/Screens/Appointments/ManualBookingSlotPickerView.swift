@@ -115,6 +115,13 @@ struct ManualBookingSlotPickerView: View {
                 .padding(.vertical, 4)
             } else if !viewModel.slotsForSelectedDay.isEmpty {
                 scrollableSlotsGrid(compact: true)
+                Text("Green = fits studio hours · Black = outside or overruns")
+                    .font(AdminTheme.fontAdminSans(size: 9, weight: .medium))
+                    .tracking(1.4)
+                    .foregroundStyle(AdminTheme.stone500)
+                    .textCase(.uppercase)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 2)
             } else {
                 Text(viewModel.availableDates.isEmpty
                     ? "No open days this month — try another month."
@@ -306,6 +313,12 @@ struct ManualBookingSlotPickerView: View {
                 )
             } else if !viewModel.slotsForSelectedDay.isEmpty {
                 scrollableSlotsGrid(compact: false)
+                Text("Green = fits studio hours · Black = outside or overruns")
+                    .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
+                    .tracking(1.6)
+                    .foregroundStyle(AdminTheme.stone500)
+                    .textCase(.uppercase)
+                    .frame(maxWidth: .infinity)
             } else {
                 Text(viewModel.availableDates.isEmpty
                     ? "No open days this month — try the next month."
@@ -364,6 +377,7 @@ struct ManualBookingSlotPickerView: View {
     private func dayButton(_ cell: MonthCell, compact: Bool) -> some View {
         let isPast = cell.date < studioToday
         let hasSlots = viewModel.availableDates.contains(cell.date)
+        let isStudio = viewModel.isStudioDay(cell.date)
         let isSelectable = hasSlots && !isPast
         let isSelected = viewModel.selectedDate == cell.date && isSelectable
         let size: CGFloat = compact ? 30 : 36
@@ -377,8 +391,11 @@ struct ManualBookingSlotPickerView: View {
                         .fill(AdminTheme.stone900)
                 } else if isSelectable {
                     Circle()
-                        .stroke(AdminTheme.stone300, lineWidth: 1)
+                        .stroke(isStudio ? AdminTheme.stone900 : AdminTheme.stone300, lineWidth: 1)
                         .background(Circle().fill(AdminTheme.stone50))
+                } else if isStudio && !isPast {
+                    Circle()
+                        .stroke(AdminTheme.stone900.opacity(0.4), lineWidth: 1)
                 }
 
                 Text("\(cell.day)")
@@ -401,22 +418,31 @@ struct ManualBookingSlotPickerView: View {
 
     private func slotButton(_ slot: String, compact: Bool) -> some View {
         let active = viewModel.selectedSlot == slot
+        let inStudio = viewModel.slotFitsStudioHours(slot)
         return Button {
             viewModel.selectSlot(slot)
         } label: {
-            Text(StudioTime.formatSlotInStudioTime(isoUtc: slot))
-                .font(AdminTheme.fontAdminSans(size: compact ? 13 : 14, weight: active ? .semibold : .regular))
-                .foregroundStyle(active ? AdminTheme.cream : AdminTheme.stone900)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, compact ? 9 : 10)
-                .background(active ? AdminTheme.stone900 : AdminTheme.stone50)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(active ? AdminTheme.stone900 : AdminTheme.stone200, lineWidth: 1)
-                )
+            HStack(spacing: compact ? 5 : 6) {
+                Circle()
+                    .fill(inStudio
+                          ? (active ? AdminTheme.confirmedText.opacity(0.85) : AdminTheme.confirmedText)
+                          : (active ? AdminTheme.stone700 : AdminTheme.stone900))
+                    .frame(width: 6, height: 6)
+                Text(StudioTime.formatSlotInStudioTime(isoUtc: slot))
+                    .font(AdminTheme.fontAdminSans(size: compact ? 13 : 14, weight: active ? .semibold : .regular))
+                    .foregroundStyle(active ? AdminTheme.stone900 : AdminTheme.stone700)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, compact ? 9 : 10)
+            .padding(.horizontal, 6)
+            .background(active ? AdminTheme.stone50 : AdminTheme.cardFill)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(active ? AdminTheme.stone300 : AdminTheme.stone200, lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
     }

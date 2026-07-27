@@ -23,8 +23,8 @@ struct BookingsView: View {
     @State private var mode: CalendarMode = .threeDay
     @State private var selectedAppointment: Appointment?
     @State private var dayFocus: DayFocus?
-    @State private var manualBookingDate: Date?
-    @State private var showsManualBooking = false
+    @State private var manualBookingFocus: ManualBookingFocus?
+    @State private var showSettings = false
 
     var body: some View {
         NavigationStack {
@@ -39,7 +39,26 @@ struct BookingsView: View {
 
                         Spacer(minLength: 12)
 
-                        newBookingHeaderButton
+                        HStack(spacing: 10) {
+                            Button {
+                                showSettings = true
+                            } label: {
+                                Image(systemName: "gearshape")
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundStyle(AdminTheme.stone700)
+                                    .frame(width: 36, height: 36)
+                                    .background(AdminTheme.cardFill)
+                                    .clipShape(Circle())
+                                    .overlay(
+                                        Circle()
+                                            .stroke(AdminTheme.stone200, lineWidth: 1)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Settings")
+
+                            newBookingHeaderButton
+                        }
                     }
                     .padding(.horizontal, AppLayout.screenPadding)
                     .padding(.top, 8)
@@ -104,21 +123,19 @@ struct BookingsView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: dayFocus != nil)
-            .fullScreenCover(isPresented: $showsManualBooking) {
-                if let manualBookingDate {
-                    ManualBookingWizardView(
-                        bookingDate: manualBookingDate,
-                        onClose: {
-                            showsManualBooking = false
-                            self.manualBookingDate = nil
-                        },
-                        onSuccess: {
-                            showsManualBooking = false
-                            self.manualBookingDate = nil
-                            Task { await viewModel.load() }
-                        }
-                    )
-                }
+            .fullScreenCover(item: $manualBookingFocus) { focus in
+                ManualBookingWizardView(
+                    bookingDate: focus.date,
+                    onClose: { manualBookingFocus = nil },
+                    onSuccess: {
+                        manualBookingFocus = nil
+                        Task { await viewModel.load() }
+                    }
+                )
+                .presentationBackground(AdminTheme.cream)
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
             }
         }
     }
@@ -145,8 +162,7 @@ struct BookingsView: View {
 
     private var newBookingHeaderButton: some View {
         Button {
-            manualBookingDate = StudioTime.startOfStudioDay(for: Date())
-            showsManualBooking = true
+            manualBookingFocus = ManualBookingFocus(date: Date())
         } label: {
             Text("New\nBooking")
                 .font(AdminTheme.fontAdminSans(size: 10, weight: .semibold))

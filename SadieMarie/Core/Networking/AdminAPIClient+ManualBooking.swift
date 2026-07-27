@@ -2,6 +2,15 @@ import Foundation
 
 extension AdminAPIClient {
 
+    /// `GET /api/admin/manual-booking/services` — Cal event-type map for the wizard.
+    func fetchManualBookingServices() async throws -> ManualBookingServicesMaps {
+        try await fetch(
+            "manual-booking/services",
+            as: ManualBookingServicesMaps.self,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+    }
+
     /// `GET /api/admin/manual-booking/slots` — Cal.com availability proxy.
     func fetchManualBookingSlots(
         eventTypeId: Int,

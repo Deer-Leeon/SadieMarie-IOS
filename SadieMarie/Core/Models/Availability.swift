@@ -33,13 +33,43 @@ enum OverrideHoursMode: String, CaseIterable, Identifiable, Hashable {
     var id: String { rawValue }
 }
 
-/// Editable override row in the UI.
+/// Editable date-override draft row (client-only `id`; never sent to Cal).
 struct OverrideRow: Identifiable, Hashable, Equatable {
-    let id: UUID
+    let id: String
     var date: Date
-    var mode: OverrideHoursMode
+    /// `true` = closed all day; `false` = custom hours (`start`/`end`).
+    var unavailable: Bool
+    /// UI times (also kept when unavailable so toggling to custom isn’t empty).
     var start: Date
     var end: Date
+
+    var mode: OverrideHoursMode {
+        get { unavailable ? .unavailableAllDay : .customHours }
+        set { unavailable = (newValue == .unavailableAllDay) }
+    }
+
+    /// Custom-hours rows must have start before end (`HH:mm` lexicographic).
+    var hasValidCustomHours: Bool {
+        guard !unavailable else { return true }
+        return AvailabilityTimeFormat.hhmm(from: start) < AvailabilityTimeFormat.hhmm(from: end)
+    }
+
+    static func make(
+        id: String = UUID().uuidString,
+        date: Date = Calendar.current.startOfDay(for: Date()),
+        unavailable: Bool = true,
+        start: Date? = nil,
+        end: Date? = nil
+    ) -> OverrideRow {
+        let day = Calendar.current.startOfDay(for: date)
+        return OverrideRow(
+            id: id,
+            date: day,
+            unavailable: unavailable,
+            start: start ?? AvailabilityTimeFormat.defaultStart(on: day),
+            end: end ?? AvailabilityTimeFormat.defaultEnd(on: day)
+        )
+    }
 }
 
 // MARK: - Time helpers

@@ -26,6 +26,8 @@ struct Appointment: Identifiable, Hashable, Sendable {
     /// Editor hex from CMS, e.g. `"#C4A484"`. `nil` → neutral row chrome.
     let serviceColor: String?
     let stripeCustomerId: String?
+    /// Client-entered notes from Cal booking form ("Additional notes").
+    let bookingNotes: String?
 
     nonisolated init(
         id: String,
@@ -42,7 +44,8 @@ struct Appointment: Identifiable, Hashable, Sendable {
         serviceDescription: String? = nil,
         serviceSlug: String? = nil,
         serviceColor: String? = nil,
-        stripeCustomerId: String? = nil
+        stripeCustomerId: String? = nil,
+        bookingNotes: String? = nil
     ) {
         self.id = id
         self.calUid = calUid
@@ -59,6 +62,7 @@ struct Appointment: Identifiable, Hashable, Sendable {
         self.serviceSlug = serviceSlug
         self.serviceColor = serviceColor
         self.stripeCustomerId = stripeCustomerId
+        self.bookingNotes = bookingNotes
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -77,6 +81,7 @@ struct Appointment: Identifiable, Hashable, Sendable {
         case serviceSlug
         case serviceColor
         case stripeCustomerId
+        case bookingNotes
     }
 }
 
@@ -98,7 +103,8 @@ extension Appointment: Decodable {
             serviceDescription: try container.decodeIfPresent(String.self, forKey: .serviceDescription),
             serviceSlug: try container.decodeIfPresent(String.self, forKey: .serviceSlug),
             serviceColor: try container.decodeIfPresent(String.self, forKey: .serviceColor),
-            stripeCustomerId: try container.decodeIfPresent(String.self, forKey: .stripeCustomerId)
+            stripeCustomerId: try container.decodeIfPresent(String.self, forKey: .stripeCustomerId),
+            bookingNotes: try container.decodeIfPresent(String.self, forKey: .bookingNotes)
         )
     }
 }
@@ -121,6 +127,7 @@ extension Appointment: Encodable {
         try container.encodeIfPresent(serviceSlug, forKey: .serviceSlug)
         try container.encodeIfPresent(serviceColor, forKey: .serviceColor)
         try container.encodeIfPresent(stripeCustomerId, forKey: .stripeCustomerId)
+        try container.encodeIfPresent(bookingNotes, forKey: .bookingNotes)
     }
 }
 

@@ -70,21 +70,25 @@ enum BookingDisplay {
             return nil
         }
 
+        let blackText = ServiceColorContrast.usesBlackText(hex: hex)
         return ServiceColor(
             accent: accent,
-            text: AdminTheme.onServiceColorText,
-            textMuted: AdminTheme.onServiceColorTextMuted
+            text: blackText ? .black : AdminTheme.onServiceColorText,
+            textMuted: blackText
+                ? Color.black.opacity(0.65)
+                : AdminTheme.onServiceColorTextMuted
         )
     }
 
     /// Primary + secondary text for list rows and calendar blocks.
     ///
-    /// Service-colored rows always use white type (time, name, service).
-    /// Status chips use semantic colored pills (`GridStatusLabel`). Neutral / no-show /
-    /// pending rows use dark stone text on white or amber fills.
+    /// Service-colored rows use white type by default; the three pastel accents
+    /// flip to black (see `ServiceColorContrast`). Status chips use semantic
+    /// colored pills. Neutral / no-show / pending rows use dark stone text.
     static func rowTextColors(for appointment: Appointment) -> (primary: Color, secondary: Color) {
-        if usesServiceColorBackground(appointment) {
-            return (AdminTheme.onServiceColorText, AdminTheme.onServiceColorTextMuted)
+        if usesServiceColorBackground(appointment),
+           let colors = serviceColor(for: appointment) {
+            return (colors.text, colors.textMuted)
         }
         if isPending(appointment) {
             return (AdminTheme.awaitingPaymentText, AdminTheme.stone700)

@@ -12,6 +12,7 @@ struct ClientProfileView: View {
     @State private var showEditSheet = false
     @State private var selectedAppointment: Appointment?
     @State private var historyMutated = false
+    @State private var showManualBooking = false
 
     init(
         entry: ClientProfileEntry,
@@ -35,6 +36,8 @@ struct ClientProfileView: View {
 
                 if viewModel.isBootstrapping {
                     loadingState("Loading client…")
+                } else if viewModel.awaitingBootstrapEmail {
+                    bootstrapEmailForm
                 } else if let bootstrapError = viewModel.bootstrapError {
                     errorState(bootstrapError)
                 } else if viewModel.client != nil {
@@ -81,12 +84,12 @@ struct ClientProfileView: View {
                         isSaving: viewModel.isSavingIdentity,
                         errorMessage: viewModel.identityError,
                         onCancel: { showEditSheet = false },
-                        onSave: { first, last, email in
+                        onSave: { first, last, validatedEmail in
                             Task {
                                 let ok = await viewModel.saveIdentity(
                                     firstName: first,
                                     lastName: last,
-                                    email: email
+                                    email: validatedEmail
                                 )
                                 if ok {
                                     showEditSheet = false
@@ -124,7 +127,9 @@ struct ClientProfileView: View {
                     .foregroundStyle(AdminTheme.stone900)
 
                 identityCard
+                bookAppointmentButton
                 crmBar
+                consentCard
                 galleryCard
                 notesCard
                 historySection
@@ -133,6 +138,38 @@ struct ClientProfileView: View {
             .padding(.vertical, 16)
             .padding(.bottom, 32)
         }
+        .fullScreenCover(isPresented: $showManualBooking) {
+            if let client = viewModel.client {
+                ManualBookingWizardView(
+                    bookingDate: Date(),
+                    prefilledClient: client,
+                    onClose: { showManualBooking = false },
+                    onSuccess: {
+                        showManualBooking = false
+                        historyMutated = true
+                        onMutated()
+                        Task { await viewModel.reloadDossier() }
+                    }
+                )
+            }
+        }
+    }
+
+    private var bookAppointmentButton: some View {
+        Button {
+            showManualBooking = true
+        } label: {
+            Text("BOOK APPOINTMENT")
+                .font(AdminTheme.fontAdminSans(size: 12, weight: .semibold))
+                .tracking(1.6)
+                .foregroundStyle(AdminTheme.cream)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(AdminTheme.stone900)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .disabled(viewModel.client == nil)
     }
 
     private var identityCard: some View {
@@ -197,6 +234,16 @@ struct ClientProfileView: View {
                     .frame(height: 44)
                     .overlay(AdminTheme.stone200)
                 crmColumn(
+                    title: "Strikes",
+                    value: "\(viewModel.crmStats.strikeCount)",
+                    valueColor: viewModel.crmStats.strikeCount > 0
+                        ? AdminTheme.rose600
+                        : AdminTheme.stone900
+                )
+                Divider()
+                    .frame(height: 44)
+                    .overlay(AdminTheme.stone200)
+                crmColumn(
                     title: "Card vault",
                     value: viewModel.crmStats.hasVaultedCard ? "On file" : "None",
                     valueColor: viewModel.crmStats.hasVaultedCard
@@ -223,12 +270,60 @@ struct ClientProfileView: View {
         .frame(maxWidth: .infinity)
     }
 
+    private var consentCard: some View {
+        AdminDetailCard {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Consent form")
+                        .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
+                        .foregroundStyle(AdminTheme.stone700)
+                    Text(consentStatusLabel)
+                        .font(AdminTheme.fontAdminSans(size: 15, weight: .medium))
+                        .foregroundStyle(consentStatusColor)
+                }
+                Spacer()
+                if let urlString = viewModel.client?.consentFormUrl,
+                   let url = URL(string: urlString) {
+                    Link(destination: url) {
+                        Text("View")
+                            .font(AdminTheme.fontAdminSans(size: 13, weight: .medium))
+                            .foregroundStyle(AdminTheme.stone900)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(AdminTheme.stone100)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+            }
+        }
+    }
+
+    private var consentStatusLabel: String {
+        if viewModel.client?.hasConsented == true {
+            return "Signed"
+        }
+        return "Not on file"
+    }
+
+    private var consentStatusColor: Color {
+        viewModel.client?.hasConsented == true
+            ? AdminTheme.confirmedText
+            : AdminTheme.stone500
+    }
+
     private var galleryCard: some View {
         NavigationLink {
             ClientGalleryView(
                 photos: viewModel.photos,
                 isLoading: viewModel.isLoadingPhotos,
-                errorMessage: viewModel.photosError
+                isUploading: viewModel.isUploadingPhoto,
+                errorMessage: viewModel.photosError,
+                onUpload: { data, filename, mime in
+                    await viewModel.uploadPhoto(data: data, filename: filename, mimeType: mime)
+                },
+                onDelete: { photo in
+                    await viewModel.deletePhoto(photo)
+                }
             )
             .task {
                 await viewModel.loadPhotosIfNeeded()
@@ -332,6 +427,84 @@ struct ClientProfileView: View {
                     onSelectAppointment: { selectedAppointment = $0 }
                 )
             }
+        }
+    }
+
+    // MARK: - Bootstrap email
+
+    private var bootstrapEmailForm: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Client email required")
+                    .font(AdminTheme.fontAdminSerif(size: 24))
+                    .foregroundStyle(AdminTheme.stone900)
+
+                Text("This booking does not have a valid email on file. Add one to open the client profile.")
+                    .font(AdminTheme.fontAdminSans(size: 14))
+                    .foregroundStyle(AdminTheme.stone700)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Email")
+                        .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
+                        .foregroundStyle(AdminTheme.stone700)
+
+                    TextField("jane@example.com", text: $viewModel.bootstrapEmailDraft)
+                        .font(AdminTheme.fontAdminSans(size: 15))
+                        .keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .textContentType(.emailAddress)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(AdminTheme.cardFill)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(
+                                    viewModel.bootstrapEmailInvalid
+                                        ? Color.semanticRed.opacity(0.5)
+                                        : AdminTheme.stone200,
+                                    lineWidth: 1
+                                )
+                        )
+                        .onChange(of: viewModel.bootstrapEmailDraft) { _, _ in
+                            viewModel.bootstrapEmailTouched = true
+                        }
+                }
+
+                if viewModel.bootstrapEmailInvalid {
+                    Text(ClientEmail.validationMessage)
+                        .font(AdminTheme.fontAdminSans(size: 12))
+                        .foregroundStyle(Color.semanticRed)
+                }
+
+                if let bootstrapError = viewModel.bootstrapError {
+                    Text(bootstrapError)
+                        .font(AdminTheme.fontAdminSans(size: 13))
+                        .foregroundStyle(Color.semanticRed)
+                }
+
+                Button {
+                    Task {
+                        _ = await viewModel.submitBootstrapEmail()
+                    }
+                } label: {
+                    Text("Continue")
+                        .font(AdminTheme.fontAdminSans(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(
+                            viewModel.canSubmitBootstrapEmail
+                                ? AdminTheme.stone900
+                                : AdminTheme.stone500
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+                .disabled(!viewModel.canSubmitBootstrapEmail || viewModel.isBootstrapping)
+            }
+            .padding(.horizontal, AdminTheme.Spacing.listHorizontal)
+            .padding(.vertical, 24)
         }
     }
 

@@ -6,7 +6,7 @@ enum AvailabilityDayOpen {
         let iso = AvailabilityTimeFormat.yyyyMMdd(from: date)
 
         if let override = response.overrides.first(where: { $0.date == iso }) {
-            if override.startTime == nil, override.endTime == nil {
+            if override.isUnavailableAllDay {
                 return false
             }
             return true

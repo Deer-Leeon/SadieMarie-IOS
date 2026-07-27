@@ -12,6 +12,7 @@
 		73358C852F8ECC5800DFA772 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 73358C842F8ECC5800DFA772 /* WidgetKit.framework */; };
 		73358C872F8ECC5800DFA772 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 73358C862F8ECC5800DFA772 /* SwiftUI.framework */; };
 		73358C962F8ECC5A00DFA772 /* SadieMarieWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 73358C822F8ECC5800DFA772 /* SadieMarieWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		73358CB62F901C8300DFA772 /* SadieMarieNotifications.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 73358CAF2F901C8300DFA772 /* SadieMarieNotifications.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		73HC00032FC6000100B84A2E /* HorizonCalendar in Frameworks */ = {isa = PBXBuildFile; productRef = 73HC00022FC6000100B84A2E /* HorizonCalendar */; };
 		B10000112F7640EF00C6ADEE /* SadieMarieTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000012F7640EF00C6ADEE /* SadieMarieTests.swift */; };
 		B10000132F7640EF00C6ADEE /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10000052F7640EF00C6ADEE /* XCTest.framework */; };
@@ -25,6 +26,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 73358C812F8ECC5800DFA772;
 			remoteInfo = SadieMarieWidgets;
+		};
+		73358CB42F901C8300DFA772 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 735A66EB2F7640EF00C6ADEE /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 73358CAE2F901C8300DFA772;
+			remoteInfo = SadieMarieNotifications;
 		};
 		B10000511F7640EF00C6ADEE /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -50,6 +58,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				73358C962F8ECC5A00DFA772 /* SadieMarieWidgets.appex in Embed Foundation Extensions */,
+				73358CB62F901C8300DFA772 /* SadieMarieNotifications.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -62,6 +71,9 @@
 		73358C862F8ECC5800DFA772 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		73358CA32F8ECD9400DFA772 /* SadieMarieWidgetsExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SadieMarieWidgetsExtension.entitlements; sourceTree = "<group>"; };
 		73358CA42F8EDFD600DFA772 /* SadieMarieWidgetsExtensionDebug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SadieMarieWidgetsExtensionDebug.entitlements; sourceTree = "<group>"; };
+		73358CAF2F901C8300DFA772 /* SadieMarieNotifications.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SadieMarieNotifications.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		73358CC12F901C8300DFA772 /* SadieMarieNotificationsExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SadieMarieNotificationsExtension.entitlements; sourceTree = "<group>"; };
+		73358CC22F901C8300DFA772 /* SadieMarieNotificationsExtensionDebug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SadieMarieNotificationsExtensionDebug.entitlements; sourceTree = "<group>"; };
 		735A66F32F7640EF00C6ADEE /* SadieMarie.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SadieMarie.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B10000012F7640EF00C6ADEE /* SadieMarieTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SadieMarieTests.swift; sourceTree = "<group>"; };
 		B10000032F7640EF00C6ADEE /* SadieMarieTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SadieMarieTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -86,6 +98,13 @@
 			);
 			target = 73358C812F8ECC5800DFA772 /* SadieMarieWidgets */;
 		};
+		73358CBA2F901C8300DFA772 /* Exceptions for "SadieMarieNotifications" folder in "SadieMarieNotifications" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 73358CAE2F901C8300DFA772 /* SadieMarieNotifications */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -95,6 +114,14 @@
 				73358C9A2F8ECC5A00DFA772 /* Exceptions for "SadieMarieWidgets" folder in "SadieMarieWidgets" target */,
 			);
 			path = SadieMarieWidgets;
+			sourceTree = "<group>";
+		};
+		73358CB02F901C8300DFA772 /* SadieMarieNotifications */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				73358CBA2F901C8300DFA772 /* Exceptions for "SadieMarieNotifications" folder in "SadieMarieNotifications" target */,
+			);
+			path = SadieMarieNotifications;
 			sourceTree = "<group>";
 		};
 		735A66F52F7640EF00C6ADEE /* SadieMarie */ = {
@@ -114,6 +141,13 @@
 			files = (
 				73358C872F8ECC5800DFA772 /* SwiftUI.framework in Frameworks */,
 				73358C852F8ECC5800DFA772 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		73358CAC2F901C8300DFA772 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -166,11 +200,14 @@
 		735A66EA2F7640EF00C6ADEE = {
 			isa = PBXGroup;
 			children = (
+				73358CC22F901C8300DFA772 /* SadieMarieNotificationsExtensionDebug.entitlements */,
+				73358CC12F901C8300DFA772 /* SadieMarieNotificationsExtension.entitlements */,
 				73358CA42F8EDFD600DFA772 /* SadieMarieWidgetsExtensionDebug.entitlements */,
 				73358CA32F8ECD9400DFA772 /* SadieMarieWidgetsExtension.entitlements */,
 				735A66F52F7640EF00C6ADEE /* SadieMarie */,
 				B10000212F7640EF00C6ADEE /* SadieMarieTests */,
 				73358C882F8ECC5800DFA772 /* SadieMarieWidgets */,
+				73358CB02F901C8300DFA772 /* SadieMarieNotifications */,
 				73358C832F8ECC5800DFA772 /* Frameworks */,
 				735A66F42F7640EF00C6ADEE /* Products */,
 				73358BE12F7F4B1600DFA772 /* Recovered References */,
@@ -184,6 +221,7 @@
 				B10000032F7640EF00C6ADEE /* SadieMarieTests.xctest */,
 				B10000042F7640EF00C6ADEE /* SadieMarieUITests.xctest */,
 				73358C822F8ECC5800DFA772 /* SadieMarieWidgets.appex */,
+				73358CAF2F901C8300DFA772 /* SadieMarieNotifications.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -221,6 +259,28 @@
 			productReference = 73358C822F8ECC5800DFA772 /* SadieMarieWidgets.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		73358CAE2F901C8300DFA772 /* SadieMarieNotifications */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 73358CB72F901C8300DFA772 /* Build configuration list for PBXNativeTarget "SadieMarieNotifications" */;
+			buildPhases = (
+				73358CAB2F901C8300DFA772 /* Sources */,
+				73358CAC2F901C8300DFA772 /* Frameworks */,
+				73358CAD2F901C8300DFA772 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				73358CB02F901C8300DFA772 /* SadieMarieNotifications */,
+			);
+			name = SadieMarieNotifications;
+			packageProductDependencies = (
+			);
+			productName = SadieMarieNotifications;
+			productReference = 73358CAF2F901C8300DFA772 /* SadieMarieNotifications.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		735A66F22F7640EF00C6ADEE /* SadieMarie */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 735A66FE2F7640F000C6ADEE /* Build configuration list for PBXNativeTarget "SadieMarie" */;
@@ -234,6 +294,7 @@
 			);
 			dependencies = (
 				73358C952F8ECC5A00DFA772 /* PBXTargetDependency */,
+				73358CB52F901C8300DFA772 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				735A66F52F7640EF00C6ADEE /* SadieMarie */,
@@ -301,9 +362,6 @@
 					73358C812F8ECC5800DFA772 = {
 						CreatedOnToolsVersion = 26.3;
 					};
-					73358CAE2F901C8300DFA772 = {
-						CreatedOnToolsVersion = 26.3;
-					};
 					735A66F22F7640EF00C6ADEE = {
 						CreatedOnToolsVersion = 26.3;
 					};
@@ -339,12 +397,20 @@
 				B10000312F7640EF00C6ADEE /* SadieMarieTests */,
 				B10000322F7640EF00C6ADEE /* SadieMarieUITests */,
 				73358C812F8ECC5800DFA772 /* SadieMarieWidgets */,
+				73358CAE2F901C8300DFA772 /* SadieMarieNotifications */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		73358C802F8ECC5800DFA772 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		73358CAD2F901C8300DFA772 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -382,6 +448,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		73358CAB2F901C8300DFA772 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		735A66EF2F7640EF00C6ADEE /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -412,6 +485,11 @@
 			target = 73358C812F8ECC5800DFA772 /* SadieMarieWidgets */;
 			targetProxy = 73358C942F8ECC5A00DFA772 /* PBXContainerItemProxy */;
 		};
+		73358CB52F901C8300DFA772 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 73358CAE2F901C8300DFA772 /* SadieMarieNotifications */;
+			targetProxy = 73358CB42F901C8300DFA772 /* PBXContainerItemProxy */;
+		};
 		B10000521F7640EF00C6ADEE /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 735A66F22F7640EF00C6ADEE /* SadieMarie */;
@@ -428,11 +506,10 @@
 		73358C982F8ECC5A00DFA772 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_ENTITLEMENTS = SadieMarieWidgetsExtensionDebug.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 14;
 				DEVELOPMENT_TEAM = F54JWSP8S3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SadieMarieWidgets/Info.plist;
@@ -444,7 +521,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.5;
+				MARKETING_VERSION = 1.0.13;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.lj-buchmiller.SadieMarie.dev.SadieMarieWidgets";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -460,11 +537,10 @@
 		73358C992F8ECC5A00DFA772 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_ENTITLEMENTS = SadieMarieWidgetsExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 14;
 				DEVELOPMENT_TEAM = F54JWSP8S3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SadieMarieWidgets/Info.plist;
@@ -476,8 +552,68 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.5;
+				MARKETING_VERSION = 1.0.13;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.lj-buchmiller.SadieMarie.SadieMarieWidgets";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		73358CB82F901C8300DFA772 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = SadieMarieNotificationsExtensionDebug.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 14;
+				DEVELOPMENT_TEAM = F54JWSP8S3;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SadieMarieNotifications/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Sadie Marie Notifications";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.13;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.lj-buchmiller.SadieMarie.dev.SadieMarieNotifications";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		73358CB92F901C8300DFA772 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = SadieMarieNotificationsExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 14;
+				DEVELOPMENT_TEAM = F54JWSP8S3;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SadieMarieNotifications/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Sadie Marie Notifications";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0.13;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.lj-buchmiller.SadieMarie.SadieMarieNotifications";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -616,12 +752,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = SadieMarie/SadieMarie.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 14;
 				DEVELOPMENT_TEAM = F54JWSP8S3;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -639,7 +774,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.5;
+				MARKETING_VERSION = 1.0.13;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.lj-buchmiller.SadieMarie.dev";
 				PRODUCT_MODULE_NAME = SadieMarie;
 				PRODUCT_NAME = SadieMarie;
@@ -658,12 +793,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = SadieMarie/SadieMarie.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 14;
 				DEVELOPMENT_TEAM = F54JWSP8S3;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -681,7 +815,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.5;
+				MARKETING_VERSION = 1.0.13;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.lj-buchmiller.SadieMarie";
 				PRODUCT_MODULE_NAME = SadieMarie;
 				PRODUCT_NAME = SadieMarie;
@@ -794,6 +928,15 @@
 			buildConfigurations = (
 				73358C982F8ECC5A00DFA772 /* Debug */,
 				73358C992F8ECC5A00DFA772 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		73358CB72F901C8300DFA772 /* Build configuration list for PBXNativeTarget "SadieMarieNotifications" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				73358CB82F901C8300DFA772 /* Debug */,
+				73358CB92F901C8300DFA772 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

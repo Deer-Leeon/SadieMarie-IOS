@@ -2,10 +2,11 @@ import SwiftUI
 
 struct AvailabilitySaveBar: View {
     let hasChanges: Bool
+    var hasInvalidOverrides: Bool = false
     let isSaving: Bool
     let action: () -> Void
 
-    private var isActive: Bool { hasChanges && !isSaving }
+    private var isActive: Bool { hasChanges && !hasInvalidOverrides && !isSaving }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,7 +29,7 @@ struct AvailabilitySaveBar: View {
                 .background(isActive ? AdminTheme.stone900 : AdminTheme.stone200)
                 .clipShape(RoundedRectangle(cornerRadius: AdminTheme.Radius.card))
             }
-            .disabled(!hasChanges || isSaving)
+            .disabled(!isActive)
             .buttonStyle(.plain)
             .padding(.horizontal, AdminTheme.Spacing.listHorizontal)
             .padding(.top, 10)

@@ -10,7 +10,7 @@ struct AppointmentDetailSheet: View {
     @State private var statusError: String?
     @State private var showNoShowConfirm = false
     @State private var showCancelConfirm = false
-    @State private var rescheduleLink: RescheduleSafariLink?
+    @State private var showReschedule = false
     @State private var clientProfileEntry: ClientProfileEntry?
 
     private var headerStatus: BookingDisplay.DetailHeaderStatus {
@@ -18,8 +18,7 @@ struct AppointmentDetailSheet: View {
     }
 
     private var canReschedule: Bool {
-        guard let slug = appointment.serviceSlug, !slug.isEmpty,
-              let uid = appointment.calUid, !uid.isEmpty else {
+        guard let slug = appointment.serviceSlug, !slug.isEmpty else {
             return false
         }
         return true
@@ -48,6 +47,10 @@ struct AppointmentDetailSheet: View {
                     clientCard
                     timeCard
                     serviceCard
+                    if let notes = appointment.bookingNotes?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !notes.isEmpty {
+                        notesCard(notes)
+                    }
                 }
                 .padding(.horizontal, AdminTheme.Spacing.listHorizontal)
                 .padding(.top, 8)
@@ -87,21 +90,37 @@ struct AppointmentDetailSheet: View {
                 }
             )
         }
-        .sheet(item: $rescheduleLink) { link in
-            AdminSafariView(url: link.url)
-                .ignoresSafeArea()
+        .fullScreenCover(isPresented: $showReschedule) {
+            RescheduleBookingView(
+                appointment: appointment,
+                onBack: { showReschedule = false },
+                onSuccess: {
+                    showReschedule = false
+                    onMutated()
+                    onDismiss()
+                }
+            )
         }
         .confirmationDialog(
             "Mark as no-show?",
             isPresented: $showNoShowConfirm,
             titleVisibility: .visible
         ) {
-            Button("Charge 50% & mark no-show", role: .destructive) {
-                Task { await performStatusChange(.noShow) }
+            if canChargeNoShow {
+                Button("Charge 50% & mark no-show", role: .destructive) {
+                    Task { await performStatusChange(.noShowCharged) }
+                }
+            }
+            Button("Mark no-show (no charge)") {
+                Task { await performStatusChange(.noShowNoCharge) }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This will charge the client's vaulted card for 50% of the service price.")
+            if canChargeNoShow {
+                Text("Charge 50% of the service price to the card on file, or mark the no-show without charging.")
+            } else {
+                Text("No vaulted card or service price on file — this will mark a no-show without charging.")
+            }
         }
         .confirmationDialog(
             "Cancel appointment?",
@@ -219,6 +238,20 @@ struct AppointmentDetailSheet: View {
         }
     }
 
+    private func notesCard(_ notes: String) -> some View {
+        AdminDetailCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Booking notes")
+                    .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
+                    .foregroundStyle(AdminTheme.stone700)
+                Text(notes)
+                    .font(AdminTheme.fontAdminSans(size: 14))
+                    .foregroundStyle(AdminTheme.stone700)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
     private func detailLine(icon: String, text: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: icon)
@@ -247,15 +280,11 @@ struct AppointmentDetailSheet: View {
                 }
 
                 actionButton(
-                    title: statusAction == .noShow ? "Charging…" : "No-show",
+                    title: statusAction?.isNoShow == true ? "Saving…" : "No-show",
                     style: .amber,
-                    disabled: !canChargeNoShow || isBusy
+                    disabled: isBusy
                 ) {
-                    if canChargeNoShow {
-                        showNoShowConfirm = true
-                    } else {
-                        statusError = "Requires a vaulted card and service price on file."
-                    }
+                    showNoShowConfirm = true
                 }
 
                 actionButton(
@@ -324,16 +353,20 @@ struct AppointmentDetailSheet: View {
     }
 
     private func openReschedule() {
-        guard let uid = appointment.calUid,
-              let encoded = uid.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "https://cal.com/reschedule/\(encoded)") else {
-            return
-        }
-        rescheduleLink = RescheduleSafariLink(url: url)
+        showReschedule = true
     }
 
     private enum StatusAction {
-        case noShow, cancel
+        case noShowCharged
+        case noShowNoCharge
+        case cancel
+
+        var isNoShow: Bool {
+            switch self {
+            case .noShowCharged, .noShowNoCharge: return true
+            case .cancel: return false
+            }
+        }
     }
 
     private func performStatusChange(_ action: StatusAction) async {
@@ -342,18 +375,30 @@ struct AppointmentDetailSheet: View {
         defer { statusAction = nil }
 
         let status: String
+        let chargeNoShow: Bool?
         switch action {
-        case .noShow:
+        case .noShowCharged:
             status = AppointmentStatus.noShow.rawValue
+            chargeNoShow = true
+        case .noShowNoCharge:
+            status = AppointmentStatus.noShow.rawValue
+            chargeNoShow = false
         case .cancel:
             status = AppointmentStatus.canceledByAdmin.rawValue
+            chargeNoShow = nil
         }
 
         do {
-            try await AdminAPIClient.shared.updateAppointmentStatus(
+            let response = try await AdminAPIClient.shared.updateAppointmentStatus(
                 id: appointment.id,
-                status: status
+                status: status,
+                chargeNoShow: chargeNoShow
             )
+            if let calError = response.calCancelError, !calError.isEmpty {
+                statusError = "Canceled locally, but Cal.com reported: \(calError)"
+                onMutated()
+                return
+            }
             onMutated()
             onDismiss()
         } catch {
@@ -370,11 +415,6 @@ struct AppointmentDetailSheet: View {
             .background(Color.semanticRed.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: AdminTheme.Radius.card))
     }
-}
-
-private struct RescheduleSafariLink: Identifiable {
-    let id = UUID()
-    let url: URL
 }
 
 #Preview {

@@ -25,6 +25,7 @@ final class ManualBookingViewModel {
     var clientEmail = ""
     var clientPhone = ""
     var phoneTouched = false
+    var emailTouched = false
 
     private(set) var isLoadingServices = false
     private(set) var isCompleting = false
@@ -38,6 +39,9 @@ final class ManualBookingViewModel {
     var selectedSlot: String?
     private(set) var monthSlots: [String: [String]] = [:]
     private(set) var availableDates: [String] = []
+    private(set) var studioDayDates: Set<String> = []
+    private(set) var scheduleAvailability: [ScheduleAvailabilityBlock] = []
+    private(set) var scheduleOverrides: [ScheduleOverride] = []
     private(set) var monthLoading = false
     private(set) var monthError: String?
 
@@ -46,7 +50,21 @@ final class ManualBookingViewModel {
     private var mayAdvanceFromEmptyStartMonth = true
     private var slotsLoadGeneration = 0
 
-    init(initialDate: Date) {
+    enum ClientEntryMode: Hashable {
+        case existing
+        case new
+    }
+
+    /// When set, client fields are locked to this CRM client (book-from-profile).
+    private(set) var lockedClient: Client?
+    private(set) var directoryClients: [Client] = []
+    private(set) var selectedDirectoryClient: Client?
+    private(set) var isLoadingDirectoryClients = false
+    private(set) var directoryLoadError: String?
+    var clientEntryMode: ClientEntryMode = .existing
+    var clientSearchQuery = ""
+
+    init(initialDate: Date, prefilledClient: Client? = nil) {
         studioToday = StudioTime.todayInStudio()
         let iso = StudioTime.yyyyMMdd(from: initialDate)
         initialDateISO = iso >= studioToday ? iso : nil
@@ -54,6 +72,90 @@ final class ManualBookingViewModel {
         let components = StudioTime.calendar.dateComponents([.year, .month], from: initialDate)
         viewYear = components.year ?? StudioTime.calendar.component(.year, from: Date())
         viewMonth = components.month ?? StudioTime.calendar.component(.month, from: Date())
+
+        if let prefilledClient {
+            applyClient(prefilledClient, lock: true)
+        }
+    }
+
+    func applyClient(_ client: Client, lock: Bool) {
+        lockedClient = lock ? client : nil
+        selectedDirectoryClient = lock ? nil : client
+        clientFirstName = client.firstName ?? ""
+        clientLastName = client.lastName ?? ""
+        clientEmail = ClientEmail.usableDisplay(client.email) ?? ""
+        clientPhone = client.formattedPhone.isEmpty ? (client.phone ?? "") : client.formattedPhone
+        phoneTouched = false
+        emailTouched = false
+        clientSearchQuery = ""
+        if !lock {
+            clientEntryMode = .existing
+        }
+    }
+
+    func setClientEntryMode(_ mode: ClientEntryMode) {
+        guard lockedClient == nil else { return }
+        clientEntryMode = mode
+        if mode == .new {
+            clearSelectedDirectoryClient()
+        }
+    }
+
+    func selectDirectoryClient(_ client: Client) {
+        applyClient(client, lock: false)
+        selectedDirectoryClient = client
+        clientEntryMode = .existing
+    }
+
+    func clearSelectedDirectoryClient() {
+        selectedDirectoryClient = nil
+        if lockedClient == nil {
+            clientFirstName = ""
+            clientLastName = ""
+            clientEmail = ""
+            clientPhone = ""
+            phoneTouched = false
+            emailTouched = false
+        }
+    }
+
+    func clearLockedClient() {
+        lockedClient = nil
+        selectedDirectoryClient = nil
+        clientFirstName = ""
+        clientLastName = ""
+        clientEmail = ""
+        clientPhone = ""
+    }
+
+    var filteredDirectoryClients: [Client] {
+        let q = clientSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let digits = q.filter(\.isNumber)
+        guard !q.isEmpty else { return Array(directoryClients.prefix(40)) }
+        return directoryClients.filter { client in
+            if client.displayName.lowercased().contains(q) { return true }
+            if let email = client.email?.lowercased(), email.contains(q) { return true }
+            if client.formattedPhone.lowercased().contains(q) { return true }
+            if digits.count >= 3, let phone = client.phone {
+                let phoneDigits = phone.filter(\.isNumber)
+                if phoneDigits.contains(digits) { return true }
+            }
+            return false
+        }
+        .prefix(40)
+        .map { $0 }
+    }
+
+    func loadDirectoryClientsIfNeeded() async {
+        guard directoryClients.isEmpty, !isLoadingDirectoryClients else { return }
+        isLoadingDirectoryClients = true
+        directoryLoadError = nil
+        defer { isLoadingDirectoryClients = false }
+        do {
+            directoryClients = try await AdminAPIClient.shared.fetchClients()
+        } catch {
+            directoryLoadError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
     }
 
     // MARK: - Derived
@@ -66,29 +168,57 @@ final class ManualBookingViewModel {
         phoneTouched && !clientPhone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && parsedClientPhone == nil
     }
 
+    var emailInvalid: Bool {
+        emailTouched && !ClientEmail.isValidOptional(clientEmail)
+    }
+
     var canAdvanceFromService: Bool {
         selectedService != nil
     }
 
     var canAdvanceFromClient: Bool {
-        !clientFirstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if lockedClient != nil {
+            return !clientFirstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !clientLastName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && parsedClientPhone != nil
+                && ClientEmail.isValidOptional(clientEmail)
+        }
+        if clientEntryMode == .existing {
+            return selectedDirectoryClient != nil
+                && parsedClientPhone != nil
+                && ClientEmail.isValidOptional(clientEmail)
+        }
+        return !clientFirstName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !clientLastName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && parsedClientPhone != nil
-            && isEmailValidForAdvance
+            && ClientEmail.isValidOptional(clientEmail)
     }
 
     var canBook: Bool {
-        selectedSlot != nil && !isCompleting
+        selectedSlot != nil && !isCompleting && canAdvanceFromClient
     }
 
     var headerTitle: String {
         if (step == .schedule || step == .client), let selectedService {
             return selectedService.title
         }
+        if lockedClient != nil {
+            return clientDisplayName.isEmpty ? "Book appointment" : clientDisplayName
+        }
         return "New appointment"
     }
 
     var headerSubtitle: String {
+        if lockedClient != nil {
+            switch step {
+            case .service:
+                return "Choose a service for \(clientDisplayName) · Step 1 of 2"
+            case .schedule:
+                return "Pick an open date & time · Step 2 of 2"
+            case .client:
+                return "Client details"
+            }
+        }
         switch step {
         case .service:
             return "Choose a service · Step 1 of 3"
@@ -116,6 +246,31 @@ final class ManualBookingViewModel {
         return monthSlots[selectedDate] ?? []
     }
 
+    /// Studio open-hours windows for the selected day (for green/black slot dots).
+    var selectedDayWindows: [StudioScheduleWindows.TimeWindow] {
+        guard let selectedDate else { return [] }
+        return StudioScheduleWindows.windows(
+            forYMD: selectedDate,
+            availability: scheduleAvailability,
+            overrides: scheduleOverrides
+        )
+    }
+
+    func slotFitsStudioHours(_ slotIsoUtc: String) -> Bool {
+        guard let hhmm = StudioTime.slotToStudioLocalHhmm(isoUtc: slotIsoUtc) else {
+            return false
+        }
+        return StudioScheduleWindows.isAppointmentWithinStudioWindows(
+            slotLocalHhmm: hhmm,
+            durationMins: selectedService?.durationMins,
+            windows: selectedDayWindows
+        )
+    }
+
+    func isStudioDay(_ ymd: String) -> Bool {
+        studioDayDates.contains(ymd)
+    }
+
     // MARK: - Lifecycle
 
     var hasBookableServices: Bool {
@@ -129,18 +284,35 @@ final class ManualBookingViewModel {
         defer { isLoadingServices = false }
 
         do {
-            async let adminServices = AdminAPIClient.shared.fetchServices()
+            // Prefer the manual-booking endpoint (Cal event-type map), fall back to CMS services.
             let catalog = try? await ServiceCatalogRepository.shared.fetchCatalog()
-            let fetched = try await adminServices
-
-            if let catalog {
-                serviceSections = ManualBookingServiceCatalog.buildSections(
-                    publicServices: catalog.services,
-                    adminServices: fetched,
-                    layout: catalog.layout
-                )
+            if let maps = try? await AdminAPIClient.shared.fetchManualBookingServices(),
+               !maps.services.isEmpty {
+                let adminFallback = (try? await AdminAPIClient.shared.fetchServices()) ?? []
+                if let catalog {
+                    serviceSections = ManualBookingServiceCatalog.buildSections(
+                        publicServices: catalog.services,
+                        adminServices: adminFallback,
+                        layout: catalog.layout,
+                        eventTypeBySlug: maps.eventTypeBySlug
+                    )
+                } else {
+                    serviceSections = ManualBookingServiceCatalog.buildSections(
+                        from: maps,
+                        adminServices: adminFallback
+                    )
+                }
             } else {
-                serviceSections = ManualBookingServiceCatalog.buildSections(from: fetched)
+                let fetched = try await AdminAPIClient.shared.fetchServices()
+                if let catalog {
+                    serviceSections = ManualBookingServiceCatalog.buildSections(
+                        publicServices: catalog.services,
+                        adminServices: fetched,
+                        layout: catalog.layout
+                    )
+                } else {
+                    serviceSections = ManualBookingServiceCatalog.buildSections(from: fetched)
+                }
             }
         } catch let error as AdminAPIError {
             errorMessage = message(for: error)
@@ -154,6 +326,9 @@ final class ManualBookingViewModel {
         errorMessage = nil
         if step == .service {
             onCancel()
+        } else if lockedClient != nil, step == .schedule {
+            step = .service
+            selectedSlot = nil
         } else {
             step = Step(rawValue: step.rawValue - 1) ?? .service
             if step != .schedule {
@@ -166,10 +341,23 @@ final class ManualBookingViewModel {
         guard !isCompleting else { return }
         errorMessage = nil
 
+        if step == .service, lockedClient != nil {
+            guard canAdvanceFromService else { return }
+            guard canAdvanceFromClient else {
+                errorMessage = "This client needs a first name, last name, and phone before booking."
+                return
+            }
+            step = .schedule
+            selectedSlot = nil
+            Task { await loadMonth(year: viewYear, month: viewMonth) }
+            return
+        }
+
         if step == .client {
             phoneTouched = true
+            emailTouched = true
             formatPhoneField()
-            guard parsedClientPhone != nil else { return }
+            guard canAdvanceFromClient else { return }
         }
 
         guard let next = Step(rawValue: step.rawValue + 1) else { return }
@@ -183,6 +371,15 @@ final class ManualBookingViewModel {
     func selectService(_ service: ManualBookingServiceOption) {
         selectedService = service
         errorMessage = nil
+    }
+
+    /// Jump straight to the slot picker (admin reschedule / locked flows).
+    func prepareSchedule(for service: ManualBookingServiceOption) async {
+        selectedService = service
+        errorMessage = nil
+        selectedSlot = nil
+        step = .schedule
+        await loadMonth(year: viewYear, month: viewMonth)
     }
 
     func formatPhoneField() {
@@ -224,11 +421,12 @@ final class ManualBookingViewModel {
 
         let trimmedFirst = clientFirstName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedLast = clientLastName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedEmail = optionalEmailForAPI(clientEmail)
-        if !clientEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, trimmedEmail == nil {
-            errorMessage = "Enter a valid email address or leave email blank."
+        emailTouched = true
+        if !ClientEmail.isValidOptional(clientEmail) {
+            errorMessage = ClientEmail.validationMessage
             return
         }
+        let optionalEmail = ClientEmail.validatedOptional(clientEmail)
 
         guard let parsedPhone = parsedClientPhone else {
             phoneTouched = true
@@ -246,11 +444,14 @@ final class ManualBookingViewModel {
                 slotIsoUtc: slot,
                 clientFirstName: trimmedFirst,
                 clientLastName: trimmedLast,
-                clientEmail: trimmedEmail,
+                clientEmail: optionalEmail,
                 clientPhoneDigits: parsedPhone.digits
             )
             onSuccess()
         } catch let error as ManualBookingExecutionError {
+            errorMessage = error.localizedDescription
+        } catch let error as ClientEmailValidationError {
+            emailTouched = true
             errorMessage = error.localizedDescription
         } catch let error as AdminAPIError {
             errorMessage = manualBookingMessage(for: error)
@@ -260,20 +461,6 @@ final class ManualBookingViewModel {
     }
 
     // MARK: - Private
-
-    private var isEmailValidForAdvance: Bool {
-        let trimmed = clientEmail.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return true }
-        return optionalEmailForAPI(trimmed) != nil
-    }
-
-    private func optionalEmailForAPI(_ raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !trimmed.isEmpty else { return nil }
-        let pattern = #"^[^\s@]+@[^\s@]+\.[^\s@]+$"#
-        guard trimmed.range(of: pattern, options: .regularExpression) != nil else { return nil }
-        return trimmed
-    }
 
     private func loadMonth(year: Int, month: Int) async {
         guard let service = selectedService else { return }
@@ -285,6 +472,7 @@ final class ManualBookingViewModel {
         monthError = nil
         monthSlots = [:]
         availableDates = []
+        studioDayDates = []
         selectedDate = nil
         selectedSlot = nil
 
@@ -308,13 +496,32 @@ final class ManualBookingViewModel {
         }
 
         do {
-            let data = try await AdminAPIClient.shared.fetchManualBookingSlots(
+            async let slotsDataTask = AdminAPIClient.shared.fetchManualBookingSlots(
                 eventTypeId: service.eventTypeId,
                 date: queryStart,
                 end: rangeEnd
             )
+            async let scheduleTask = AdminAPIClient.shared.fetchAvailability()
+
+            let data = try await slotsDataTask
+            let schedule = try? await scheduleTask
 
             guard generation == slotsLoadGeneration else { return }
+
+            if let schedule {
+                scheduleAvailability = schedule.schedule.availability
+                scheduleOverrides = schedule.overrides
+                studioDayDates = StudioScheduleWindows.studioDays(
+                    rangeStart: rangeStart,
+                    rangeEnd: rangeEnd,
+                    availability: scheduleAvailability,
+                    overrides: scheduleOverrides
+                )
+            } else {
+                scheduleAvailability = []
+                scheduleOverrides = []
+                studioDayDates = []
+            }
 
             let openDates = ManualBookingSlotsParser.datesWithOpenSlots(
                 from: data,
@@ -388,10 +595,10 @@ final class ManualBookingViewModel {
 
     private func manualBookingMessage(for error: AdminAPIError) -> String {
         switch error {
-        case .server(let status, let body):
+        case .server(let status, let body) where status == 400:
             let parsed = ManualBookingAPIErrorParser.message(
                 from: body?.data(using: .utf8),
-                fallback: "HTTP \(status)"
+                fallback: ClientEmail.validationMessage
             )
             return "Booking failed: \(parsed)"
         default:

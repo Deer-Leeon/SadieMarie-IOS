@@ -55,6 +55,11 @@ enum StudioTime {
         return formatter.string(from: date)
     }
 
+    /// Studio-local `HH:MM` for comparing a slot start against schedule windows.
+    static func slotToStudioLocalHhmm(isoUtc: String) -> String? {
+        (try? slotToStudioLocalStart(isoUtc: isoUtc)).map { String($0.dropFirst(11).prefix(5)) }
+    }
+
     static func monthLabel(year: Int, month: Int) -> String {
         var components = DateComponents()
         components.year = year

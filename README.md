@@ -22,12 +22,13 @@ This repository is **only** the iOS app. It was split out of a mixed workspace t
 |------|---------|
 | `SadieMarie/` | App source, fonts, assets |
 | `SadieMarieWidgets/` | Widget extension (placeholder “Coming soon”) |
+| `SadieMarieNotifications/` | Notification Service extension (rich push placeholder) |
 | `SadieMarieTests/` | Unit tests |
 | `SadieMarie.xcodeproj/` | Xcode project (Clerk + HorizonCalendar via SPM) |
 
 **Removed** (legacy Period Tracker): `PeriodTracker/`, `PartnerWidgets/`, `NotificationService/`, cycle-tracking UI.
 
-**Widget scheme:** `SadieMarieWidgets` — run to preview the placeholder widget on a simulator.
+**Extension schemes:** `SadieMarieWidgets` (widget preview), `SadieMarieNotifications` (notification service extension).
 
 ## API
 

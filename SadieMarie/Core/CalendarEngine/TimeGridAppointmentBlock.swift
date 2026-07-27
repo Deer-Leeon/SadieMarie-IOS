@@ -27,11 +27,17 @@ struct TimeGridAppointmentBlock: View {
     }
 
     private var primaryText: Color {
-        usesServiceBackground ? AdminTheme.onServiceColorText : AdminTheme.stone900
+        if usesServiceBackground, let colors = BookingDisplay.serviceColor(for: appointment) {
+            return colors.text
+        }
+        return AdminTheme.stone900
     }
 
     private var secondaryText: Color {
-        usesServiceBackground ? AdminTheme.onServiceColorTextMuted : AdminTheme.stone500
+        if usesServiceBackground, let colors = BookingDisplay.serviceColor(for: appointment) {
+            return colors.textMuted
+        }
+        return AdminTheme.stone500
     }
 
     var body: some View {

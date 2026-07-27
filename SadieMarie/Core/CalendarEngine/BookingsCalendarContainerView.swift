@@ -84,12 +84,7 @@ struct BookingsCalendarContainerView: View {
         Group {
             switch mode {
             case .threeDay, .week:
-                BookingsTimeGridView(
-                    days: visibleDays,
-                    store: store,
-                    onDayClick: onDayClick,
-                    onSelectAppointment: onSelectAppointment
-                )
+                swipeableTimeGrid
             case .month:
                 BookingsMonthCalendarView(
                     appointments: modalAppointments,

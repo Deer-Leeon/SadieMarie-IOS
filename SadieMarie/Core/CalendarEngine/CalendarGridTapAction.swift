@@ -28,7 +28,7 @@ struct CalendarGridTapAction: ViewModifier {
         if isEnabled {
             content
                 .contentShape(Rectangle())
-                // Let horizontal swipes pass through to the range pager while dragging.
+                // Disable taps while the pager is swiping (including briefly after release).
                 .allowsHitTesting(!pagerIsDragging)
                 .onTapGesture {
                     guard !pagerIsDragging else { return }

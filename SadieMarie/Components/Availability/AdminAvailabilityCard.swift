@@ -115,36 +115,77 @@ struct AdminCompactTimeField: View {
 struct AdminCompactDateField: View {
     @Binding var date: Date
     let onChange: (Date) -> Void
+    /// When set, expansion is controlled by the parent (e.g. sheet height).
+    var isExpanded: Binding<Bool>? = nil
+
+    @State private var internalExpanded = false
+
+    /// Upper bound for the collapse animation; the calendar uses its natural
+    /// height at rest (via `fixedSize`) so no days are clipped.
+    static let calendarMaxHeight: CGFloat = 460
+    static let expandAnimation: Animation = .smooth(duration: 0.32, extraBounce: 0)
+
+    private var expandedBinding: Binding<Bool> {
+        isExpanded ?? $internalExpanded
+    }
+
+    private var expanded: Bool { expandedBinding.wrappedValue }
+
+    private var selection: Binding<Date> {
+        Binding(
+            get: { date },
+            set: { newValue in
+                date = newValue
+                onChange(newValue)
+            }
+        )
+    }
 
     var body: some View {
-        Menu {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                expandedBinding.wrappedValue.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Text(AvailabilityTimeFormat.displayDate(date))
+                        .font(AdminTheme.fontAdminSans(size: 14, weight: .medium))
+                        .foregroundStyle(AdminTheme.stone900)
+                    Spacer(minLength: 0)
+                    Image(systemName: "calendar")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(AdminTheme.stone500)
+                }
+                .adminFormFieldChrome()
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Date")
+            .accessibilityValue(AvailabilityTimeFormat.displayDate(date))
+            .accessibilityHint(expanded ? "Collapse calendar" : "Show calendar")
+
             DatePicker(
                 "",
-                selection: Binding(
-                    get: { date },
-                    set: { newValue in
-                        date = newValue
-                        onChange(newValue)
-                    }
-                ),
+                selection: selection,
                 displayedComponents: .date
             )
             .datePickerStyle(.graphical)
             .labelsHidden()
             .tint(AdminTheme.stone900)
-        } label: {
-            HStack(spacing: 6) {
-                Text(AvailabilityTimeFormat.displayDate(date))
-                    .font(AdminTheme.fontAdminSans(size: 14, weight: .medium))
-                    .foregroundStyle(AdminTheme.stone900)
-                Spacer(minLength: 0)
-                Image(systemName: "calendar")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(AdminTheme.stone500)
-            }
-            .adminFormFieldChrome()
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(4)
+            .background(AdminTheme.stone100)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(AdminTheme.stone200, lineWidth: 1)
+            )
+            .padding(.top, 8)
+            .frame(maxHeight: expanded ? Self.calendarMaxHeight : 0, alignment: .top)
+            .opacity(expanded ? 1 : 0)
+            .clipped()
+            .allowsHitTesting(expanded)
+            .accessibilityHidden(!expanded)
         }
-        .tint(AdminTheme.stone900)
+        .animation(Self.expandAnimation, value: expanded)
     }
 }
 

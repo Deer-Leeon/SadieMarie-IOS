@@ -4,14 +4,17 @@ DerivedData/
 *.xccheckout
 *.moved-aside
 *.xcuserstate
-**/xcuserdata/
+
+# User-specific data
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
 
 # SwiftPM
 .build/
 
-# Local secrets (copy from template)
-SadieMarie/Config/Secrets.xcconfig
-SadieMarie/Config/LocalOverrides.xcconfig
+# Environment / local-only config
+PeriodTracker/Config/Secrets.xcconfig
+PeriodTracker/Config/LocalOverrides.xcconfig
 
-# macOS
+# macOS Finder
 .DS_Store

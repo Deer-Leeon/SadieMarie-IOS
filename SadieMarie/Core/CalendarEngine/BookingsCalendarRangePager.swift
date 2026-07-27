@@ -70,16 +70,19 @@ struct BookingsCalendarRangePager<Content: View>: View {
                 dragOffset = rubberBandedOffset(horizontal, pageWidth: pageWidth)
             }
             .onEnded { value in
+                let wasPagingDrag = isDragging
+
                 defer {
                     isDragging = false
-                    if suppressChildTaps {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    if suppressChildTaps || wasPagingDrag {
+                        suppressChildTaps = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
                             suppressChildTaps = false
                         }
                     }
                 }
 
-                guard isDragging else { return }
+                guard wasPagingDrag else { return }
 
                 let horizontal = value.translation.width
                 let predicted = value.predictedEndTranslation.width
@@ -87,10 +90,8 @@ struct BookingsCalendarRangePager<Content: View>: View {
                 let flickThreshold: CGFloat = 420
 
                 if horizontal < -threshold || predicted < -flickThreshold {
-                    suppressChildTaps = true
                     commitSwipe(direction: 1, pageWidth: pageWidth)
                 } else if horizontal > threshold || predicted > flickThreshold {
-                    suppressChildTaps = true
                     commitSwipe(direction: -1, pageWidth: pageWidth)
                 } else {
                     withAnimation(.interactiveSpring(response: 0.32, dampingFraction: 0.86)) {

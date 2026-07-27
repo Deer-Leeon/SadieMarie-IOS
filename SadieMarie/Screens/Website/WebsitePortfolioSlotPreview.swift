@@ -58,24 +58,13 @@ struct WebsitePortfolioSlotPreview: View {
                 .scaledToFill()
                 .clipped()
         } else if let url = item.imageURL {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .empty:
-                    ProgressView()
-                        .tint(AdminTheme.stone700)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .clipped()
-                case .failure:
-                    emptyPlaceholder
-                @unknown default:
-                    emptyPlaceholder
-                }
+            RemoteImageView(url: url, contentMode: .fill) {
+                ProgressView()
+                    .tint(AdminTheme.stone700)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } failure: {
+                emptyPlaceholder
             }
-            .id(url.absoluteString)
         } else {
             emptyPlaceholder
         }

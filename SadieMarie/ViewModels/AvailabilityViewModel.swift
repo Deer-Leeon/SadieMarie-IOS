@@ -9,6 +9,8 @@ final class AvailabilityViewModel {
 
     private(set) var weekly: [WeeklyDayRow] = WeeklyDayRow.defaultWeek()
     private(set) var overrides: [OverrideRow] = []
+    private(set) var archivedOverrides: [OverrideRow] = []
+    var archiveExpanded = false
     private(set) var timeZone: String = "America/Denver"
     private var scheduleId: Int?
 
@@ -17,9 +19,22 @@ final class AvailabilityViewModel {
     private(set) var errorMessage: String?
     private(set) var saveSuccessMessage: String?
 
+    /// Briefly set after confirming an add so the list can scroll/highlight.
+    private(set) var highlightedOverrideId: String?
+
     var hasUnsavedChanges: Bool {
         Self.weeklySnapshot(weekly) != initialWeeklySnapshot
             || Self.overridesSnapshot(overrides) != initialOverridesSnapshot
+            || Self.overridesSnapshot(archivedOverrides) != initialArchivedSnapshot
+    }
+
+    /// Custom-hours rows with end ≤ start block save.
+    var hasInvalidOverrides: Bool {
+        overrides.contains { !$0.hasValidCustomHours }
+    }
+
+    var canSave: Bool {
+        hasUnsavedChanges && !hasInvalidOverrides && !isSaving
     }
 
     var timeZoneEyebrow: String {
@@ -30,6 +45,7 @@ final class AvailabilityViewModel {
 
     private var initialWeeklySnapshot: [DaySnapshot] = []
     private var initialOverridesSnapshot: [OverrideSnapshot] = []
+    private var initialArchivedSnapshot: [OverrideSnapshot] = []
 
     private struct DaySnapshot: Equatable {
         let enabled: Bool
@@ -39,7 +55,7 @@ final class AvailabilityViewModel {
 
     private struct OverrideSnapshot: Equatable {
         let date: String
-        let mode: OverrideHoursMode
+        let unavailable: Bool
         let startHHMM: String?
         let endHHMM: String?
     }
@@ -50,6 +66,7 @@ final class AvailabilityViewModel {
         isLoading = true
         errorMessage = nil
         saveSuccessMessage = nil
+        highlightedOverrideId = nil
 
         defer { isLoading = false }
 
@@ -58,7 +75,12 @@ final class AvailabilityViewModel {
             scheduleId = response.resolvedScheduleId
             timeZone = response.schedule.timeZone
             weekly = Self.buildInitialWeekly(from: response.schedule.availability)
-            overrides = Self.buildInitialOverrides(from: response.overrides)
+            let partitioned = Self.partitionOverrides(
+                Self.buildInitialOverrides(from: response.overrides)
+            )
+            overrides = partitioned.active
+            archivedOverrides = partitioned.archived
+            archiveExpanded = !partitioned.archived.isEmpty
             captureSnapshots()
             AppLogger.syncInfo(
                 "Loaded availability (scheduleId=\(scheduleId.map(String.init) ?? "nil"), \(response.schedule.availability.count) blocks, \(response.overrides.count) overrides)."
@@ -81,15 +103,27 @@ final class AvailabilityViewModel {
 
         defer { isSaving = false }
 
+        guard !hasInvalidOverrides else {
+            errorMessage = "Custom override hours must end after they start."
+            return
+        }
+
         guard let scheduleId, scheduleId > 0 else {
             errorMessage = "Couldn’t determine which schedule to update. Pull to refresh and try again."
             return
         }
 
+        let partitioned = Self.partitionOverrides(overrides + archivedOverrides)
+        overrides = partitioned.active
+        archivedOverrides = partitioned.archived
+        if !partitioned.archived.isEmpty {
+            archiveExpanded = true
+        }
+
         let payload = AvailabilityUpdateRequest(
             scheduleId: scheduleId,
             availability: Self.buildAvailabilityPayload(from: weekly),
-            overrides: Self.buildOverridesPayload(from: overrides)
+            overrides: Self.buildOverridesPayload(from: partitioned.active + partitioned.archived)
         )
 
         do {
@@ -97,7 +131,12 @@ final class AvailabilityViewModel {
             self.scheduleId = response.resolvedScheduleId ?? scheduleId
             timeZone = response.schedule.timeZone
             weekly = Self.buildInitialWeekly(from: response.schedule.availability)
-            overrides = Self.buildInitialOverrides(from: response.overrides)
+            let saved = Self.partitionOverrides(
+                Self.buildInitialOverrides(from: response.overrides)
+            )
+            overrides = saved.active
+            archivedOverrides = saved.archived
+            archiveExpanded = !saved.archived.isEmpty
             captureSnapshots()
             saveSuccessMessage = "Schedule saved."
             AppLogger.syncInfo("Saved availability (\(payload.availability.count) blocks).")
@@ -136,25 +175,73 @@ final class AvailabilityViewModel {
 
     // MARK: - Override mutators
 
-    func addOverride() {
-        let today = Calendar.current.startOfDay(for: Date())
-        overrides.append(
-            OverrideRow(
-                id: UUID(),
-                date: today,
-                mode: .unavailableAllDay,
-                start: AvailabilityTimeFormat.defaultStart(on: today),
-                end: AvailabilityTimeFormat.defaultEnd(on: today)
+    /// Confirms the add-override sheet. Returns the new row id, or `nil` if validation failed.
+    @discardableResult
+    func confirmAddOverride(
+        date: Date,
+        unavailable: Bool,
+        start: Date,
+        end: Date
+    ) -> String? {
+        let day = Calendar.current.startOfDay(for: date)
+        let dateString = AvailabilityTimeFormat.yyyyMMdd(from: day)
+        guard dateString.count == 10,
+              AvailabilityTimeFormat.date(fromYYYYMMDD: dateString) != nil else {
+            errorMessage = "Pick a valid override date."
+            return nil
+        }
+
+        let roundedStart = AvailabilityTimeFormat.roundToStride(start)
+        let roundedEnd = AvailabilityTimeFormat.roundToStride(end)
+        if !unavailable {
+            let startHHMM = AvailabilityTimeFormat.hhmm(from: roundedStart)
+            let endHHMM = AvailabilityTimeFormat.hhmm(from: roundedEnd)
+            guard startHHMM < endHHMM else {
+                errorMessage = "Custom override hours must end after they start."
+                return nil
+            }
+        }
+
+        let row = OverrideRow.make(
+            date: day,
+            unavailable: unavailable,
+            start: AvailabilityTimeFormat.time(
+                hour: AvailabilityTimeFormat.calendar.component(.hour, from: roundedStart),
+                minute: AvailabilityTimeFormat.calendar.component(.minute, from: roundedStart),
+                on: day
+            ),
+            end: AvailabilityTimeFormat.time(
+                hour: AvailabilityTimeFormat.calendar.component(.hour, from: roundedEnd),
+                minute: AvailabilityTimeFormat.calendar.component(.minute, from: roundedEnd),
+                on: day
             )
         )
-        overrides.sort { $0.date < $1.date }
+
+        let today = StudioTime.todayInStudio()
+        if AvailabilityTimeFormat.yyyyMMdd(from: day) < today {
+            archivedOverrides = Self.sortedArchivedOverrides(archivedOverrides + [row])
+            archiveExpanded = true
+        } else {
+            overrides.append(row)
+            sortOverridesInPlace()
+            highlightOverride(id: row.id)
+        }
+        errorMessage = nil
+        return row.id
     }
 
-    func removeOverride(id: UUID) {
+    func removeOverride(id: String) {
         overrides.removeAll { $0.id == id }
+        if highlightedOverrideId == id {
+            highlightedOverrideId = nil
+        }
     }
 
-    func setOverrideDate(id: UUID, date: Date) {
+    func removeArchivedOverride(id: String) {
+        archivedOverrides.removeAll { $0.id == id }
+    }
+
+    func setOverrideDate(id: String, date: Date) {
         patchOverride(id: id) { row in
             row.date = Calendar.current.startOfDay(for: date)
             row.start = AvailabilityTimeFormat.time(
@@ -170,11 +257,15 @@ final class AvailabilityViewModel {
         }
     }
 
-    func setOverrideMode(id: UUID, mode: OverrideHoursMode) {
-        patchOverride(id: id) { $0.mode = mode }
+    func setOverrideMode(id: String, mode: OverrideHoursMode) {
+        patchOverride(id: id) { $0.unavailable = (mode == .unavailableAllDay) }
     }
 
-    func setOverrideTime(id: UUID, start: Date?, end: Date?) {
+    func setOverrideUnavailable(id: String, unavailable: Bool) {
+        patchOverride(id: id) { $0.unavailable = unavailable }
+    }
+
+    func setOverrideTime(id: String, start: Date?, end: Date?) {
         patchOverride(id: id) { row in
             if let start {
                 row.start = AvailabilityTimeFormat.roundToStride(start)
@@ -182,23 +273,62 @@ final class AvailabilityViewModel {
             if let end {
                 row.end = AvailabilityTimeFormat.roundToStride(end)
             }
-            if row.mode == .customHours, row.end <= row.start {
-                row.end = AvailabilityTimeFormat.time(
-                    hour: min(AvailabilityTimeFormat.calendar.component(.hour, from: row.start) + 1, 23),
-                    minute: AvailabilityTimeFormat.calendar.component(.minute, from: row.start),
-                    on: row.date
-                )
+            // Do not auto-correct invalid windows — save is blocked until fixed.
+        }
+    }
+
+    private func patchOverride(id: String, update: (inout OverrideRow) -> Void) {
+        guard let index = overrides.firstIndex(where: { $0.id == id }) else { return }
+        update(&overrides[index])
+        let partitioned = Self.partitionOverrides(overrides)
+        overrides = partitioned.active
+        if !partitioned.archived.isEmpty {
+            archivedOverrides = Self.sortedArchivedOverrides(archivedOverrides + partitioned.archived)
+            archiveExpanded = true
+        }
+    }
+
+    private func sortOverridesInPlace() {
+        overrides = Self.sortedOverrides(overrides)
+    }
+
+    private func highlightOverride(id: String) {
+        highlightedOverrideId = id
+        Task {
+            try? await Task.sleep(for: .milliseconds(1600))
+            if highlightedOverrideId == id {
+                highlightedOverrideId = nil
             }
         }
     }
 
-    private func patchOverride(id: UUID, update: (inout OverrideRow) -> Void) {
-        guard let index = overrides.firstIndex(where: { $0.id == id }) else { return }
-        update(&overrides[index])
-        overrides.sort { $0.date < $1.date }
+    // MARK: - Builders (web parity)
+
+    static func partitionOverrides(_ rows: [OverrideRow]) -> (active: [OverrideRow], archived: [OverrideRow]) {
+        let today = StudioTime.todayInStudio()
+        var active: [OverrideRow] = []
+        var archived: [OverrideRow] = []
+        for row in rows {
+            if AvailabilityTimeFormat.yyyyMMdd(from: row.date) < today {
+                archived.append(row)
+            } else {
+                active.append(row)
+            }
+        }
+        return (sortedOverrides(active), sortedArchivedOverrides(archived))
     }
 
-    // MARK: - Builders (web parity)
+    /// Most recent past date first in the archive.
+    static func sortedArchivedOverrides(_ rows: [OverrideRow]) -> [OverrideRow] {
+        rows.sorted { lhs, rhs in
+            let leftDate = AvailabilityTimeFormat.yyyyMMdd(from: lhs.date)
+            let rightDate = AvailabilityTimeFormat.yyyyMMdd(from: rhs.date)
+            if leftDate != rightDate {
+                return leftDate > rightDate
+            }
+            return lhs.id < rhs.id
+        }
+    }
 
     static func buildInitialWeekly(from blocks: [ScheduleAvailabilityBlock]) -> [WeeklyDayRow] {
         let reference = Date()
@@ -221,24 +351,31 @@ final class AvailabilityViewModel {
     }
 
     static func buildInitialOverrides(from apiOverrides: [ScheduleOverride]) -> [OverrideRow] {
-        apiOverrides.compactMap { override in
+        let rows: [OverrideRow] = apiOverrides.compactMap { override in
             guard let date = AvailabilityTimeFormat.date(fromYYYYMMDD: override.date) else { return nil }
 
-            let unavailable = override.startTime == nil && override.endTime == nil
-            let start = override.startTime.flatMap { AvailabilityTimeFormat.date(fromHHMM: $0, on: date) }
-                ?? AvailabilityTimeFormat.defaultStart(on: date)
-            let end = override.endTime.flatMap { AvailabilityTimeFormat.date(fromHHMM: $0, on: date) }
-                ?? AvailabilityTimeFormat.defaultEnd(on: date)
+            let unavailable = override.isUnavailableAllDay
+            let start: Date
+            let end: Date
+            if unavailable {
+                // Keep UI defaults so toggling to custom hours isn’t empty.
+                start = AvailabilityTimeFormat.defaultStart(on: date)
+                end = AvailabilityTimeFormat.defaultEnd(on: date)
+            } else {
+                start = override.startTime.flatMap { AvailabilityTimeFormat.date(fromHHMM: $0, on: date) }
+                    ?? AvailabilityTimeFormat.defaultStart(on: date)
+                end = override.endTime.flatMap { AvailabilityTimeFormat.date(fromHHMM: $0, on: date) }
+                    ?? AvailabilityTimeFormat.defaultEnd(on: date)
+            }
 
-            return OverrideRow(
-                id: UUID(),
+            return OverrideRow.make(
                 date: date,
-                mode: unavailable ? .unavailableAllDay : .customHours,
+                unavailable: unavailable,
                 start: start,
                 end: end
             )
         }
-        .sorted { $0.date < $1.date }
+        return sortedOverrides(rows)
     }
 
     /// Buckets enabled days with identical hours into one block (disabled days omitted).
@@ -270,22 +407,31 @@ final class AvailabilityViewModel {
         }
     }
 
+    /// Full-replace wire payload. Unavailable days encode as `"00:00"`/`"00:00"`.
     static func buildOverridesPayload(from rows: [OverrideRow]) -> [ScheduleOverride] {
-        rows.map { row in
-            if row.mode == .unavailableAllDay {
-                return ScheduleOverride(
-                    date: AvailabilityTimeFormat.yyyyMMdd(from: row.date),
-                    startTime: nil,
-                    endTime: nil
-                )
+        sortedOverrides(rows).map { row in
+            let date = AvailabilityTimeFormat.yyyyMMdd(from: row.date)
+            if row.unavailable {
+                return ScheduleOverride(date: date, startTime: "00:00", endTime: "00:00")
             }
             return ScheduleOverride(
-                date: AvailabilityTimeFormat.yyyyMMdd(from: row.date),
+                date: date,
                 startTime: AvailabilityTimeFormat.hhmm(from: row.start),
                 endTime: AvailabilityTimeFormat.hhmm(from: row.end)
             )
         }
-        .sorted { $0.date < $1.date }
+    }
+
+    /// Soonest-first: date ascending, then id ascending.
+    static func sortedOverrides(_ rows: [OverrideRow]) -> [OverrideRow] {
+        rows.sorted { lhs, rhs in
+            let leftDate = AvailabilityTimeFormat.yyyyMMdd(from: lhs.date)
+            let rightDate = AvailabilityTimeFormat.yyyyMMdd(from: rhs.date)
+            if leftDate != rightDate {
+                return leftDate < rightDate
+            }
+            return lhs.id < rhs.id
+        }
     }
 
     // MARK: - Private
@@ -293,6 +439,7 @@ final class AvailabilityViewModel {
     private func captureSnapshots() {
         initialWeeklySnapshot = Self.weeklySnapshot(weekly)
         initialOverridesSnapshot = Self.overridesSnapshot(overrides)
+        initialArchivedSnapshot = Self.overridesSnapshot(archivedOverrides)
     }
 
     private static func weeklySnapshot(_ rows: [WeeklyDayRow]) -> [DaySnapshot] {
@@ -309,9 +456,9 @@ final class AvailabilityViewModel {
         rows.map {
             OverrideSnapshot(
                 date: AvailabilityTimeFormat.yyyyMMdd(from: $0.date),
-                mode: $0.mode,
-                startHHMM: $0.mode == .customHours ? AvailabilityTimeFormat.hhmm(from: $0.start) : nil,
-                endHHMM: $0.mode == .customHours ? AvailabilityTimeFormat.hhmm(from: $0.end) : nil
+                unavailable: $0.unavailable,
+                startHHMM: $0.unavailable ? nil : AvailabilityTimeFormat.hhmm(from: $0.start),
+                endHHMM: $0.unavailable ? nil : AvailabilityTimeFormat.hhmm(from: $0.end)
             )
         }
     }
@@ -343,4 +490,3 @@ final class AvailabilityViewModel {
         }
     }
 }
-

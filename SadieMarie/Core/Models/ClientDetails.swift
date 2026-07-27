@@ -9,19 +9,22 @@ struct ClientHistoryCrmStats: Hashable, Sendable {
     let hasVaultedCard: Bool
     let riskFlag: Bool
     let lastBookedAt: String?
+    let strikeCount: Int
 
     nonisolated init(
         totalBookings: Int = 0,
         lifetimeValue: Double = 0,
         hasVaultedCard: Bool = false,
         riskFlag: Bool = false,
-        lastBookedAt: String? = nil
+        lastBookedAt: String? = nil,
+        strikeCount: Int = 0
     ) {
         self.totalBookings = totalBookings
         self.lifetimeValue = lifetimeValue
         self.hasVaultedCard = hasVaultedCard
         self.riskFlag = riskFlag
         self.lastBookedAt = lastBookedAt
+        self.strikeCount = strikeCount
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -30,6 +33,7 @@ struct ClientHistoryCrmStats: Hashable, Sendable {
         case hasVaultedCard
         case riskFlag
         case lastBookedAt
+        case strikeCount
     }
 }
 
@@ -41,7 +45,8 @@ extension ClientHistoryCrmStats: Decodable {
             lifetimeValue: try container.decodeIfPresent(Double.self, forKey: .lifetimeValue) ?? 0,
             hasVaultedCard: try container.decodeIfPresent(Bool.self, forKey: .hasVaultedCard) ?? false,
             riskFlag: try container.decodeIfPresent(Bool.self, forKey: .riskFlag) ?? false,
-            lastBookedAt: try container.decodeIfPresent(String.self, forKey: .lastBookedAt)
+            lastBookedAt: try container.decodeIfPresent(String.self, forKey: .lastBookedAt),
+            strikeCount: try container.decodeIfPresent(Int.self, forKey: .strikeCount) ?? 0
         )
     }
 }
@@ -313,7 +318,8 @@ struct ClientIdentityPayload: Encodable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encodeIfPresent(firstName, forKey: .firstName)
         try container.encodeIfPresent(lastName, forKey: .lastName)
-        try container.encodeIfPresent(email, forKey: .email)
+        // Explicit null clears email on the server when the admin empties the field.
+        try container.encode(email, forKey: .email)
     }
 
     nonisolated func encodedJSON() throws -> Data {
@@ -331,10 +337,18 @@ struct ClientIdentityPayload: Encodable, Sendable {
 
 struct AppointmentStatusPatchBody: Encodable, Sendable {
     let status: String
+    /// When `status` is `no-show`, `true` charges 50% off-session; `false` marks no-show with a strike only.
+    let chargeNoShow: Bool?
+
+    init(status: String, chargeNoShow: Bool? = nil) {
+        self.status = status
+        self.chargeNoShow = chargeNoShow
+    }
 
     nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(status, forKey: .status)
+        try container.encodeIfPresent(chargeNoShow, forKey: .chargeNoShow)
     }
 
     nonisolated func encodedJSON() throws -> Data {
@@ -343,7 +357,31 @@ struct AppointmentStatusPatchBody: Encodable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case status
+        case chargeNoShow
     }
+}
+
+/// Response from `PATCH /api/admin/appointments/{id}/status`.
+struct AppointmentStatusUpdateResponse: Decodable, Sendable {
+    let calCancelError: String?
+    let noShowCharge: NoShowChargePayload?
+
+    private enum CodingKeys: String, CodingKey {
+        case calCancelError
+        case noShowCharge
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        calCancelError = try container.decodeIfPresent(String.self, forKey: .calCancelError)
+        noShowCharge = try container.decodeIfPresent(NoShowChargePayload.self, forKey: .noShowCharge)
+    }
+}
+
+struct NoShowChargePayload: Decodable, Sendable {
+    let paymentIntentId: String?
+    let amountCents: Int?
+    let currency: String?
 }
 
 struct ReschedulePayload: Encodable, Sendable {
@@ -369,6 +407,40 @@ struct ReschedulePayload: Encodable, Sendable {
         case newBookingTime
         case newEndTime
         case oldCalUid
+    }
+}
+
+struct AdminReschedulePayload: Encodable, Sendable {
+    let start: String
+    let eventTypeId: Int
+
+    nonisolated func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(start, forKey: .start)
+        try container.encode(eventTypeId, forKey: .eventTypeId)
+    }
+
+    nonisolated func encodedJSON() throws -> Data {
+        // CamelCase — matches web/admin JSON.stringify payloads.
+        try JSONEncoder().encode(self)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case start
+        case eventTypeId
+    }
+}
+
+struct AdminRescheduleResponse: Decodable, Sendable {
+    let calCancelError: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case calCancelError
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        calCancelError = try container.decodeIfPresent(String.self, forKey: .calCancelError)
     }
 }
 

@@ -32,6 +32,61 @@ struct ManualBookingServiceOption: Identifiable, Hashable, Sendable {
     }
 }
 
+/// Response from `GET /api/admin/manual-booking/services`.
+struct ManualBookingServicesMaps: Decodable, Sendable {
+    let services: [ManualBookingCalService]
+    let groupHeaders: [ManualBookingGroupHeader]
+
+    var eventTypeBySlug: [String: Int] {
+        Dictionary(uniqueKeysWithValues: services.map { ($0.slug, $0.eventTypeId) })
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case services
+        case groupHeaders
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        services = try container.decodeIfPresent([ManualBookingCalService].self, forKey: .services) ?? []
+        groupHeaders = try container.decodeIfPresent([ManualBookingGroupHeader].self, forKey: .groupHeaders) ?? []
+    }
+}
+
+struct ManualBookingCalService: Decodable, Hashable, Sendable {
+    let slug: String
+    let title: String
+    let category: String
+    let parentId: Int?
+    let eventTypeId: Int
+    let durationMins: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case slug
+        case title
+        case category
+        case parentId
+        case eventTypeId
+        case durationMins
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        slug = try container.decode(String.self, forKey: .slug)
+        title = try container.decode(String.self, forKey: .title)
+        category = try container.decodeIfPresent(String.self, forKey: .category) ?? ""
+        parentId = try container.decodeIfPresent(Int.self, forKey: .parentId)
+        eventTypeId = try container.decode(Int.self, forKey: .eventTypeId)
+        durationMins = try container.decodeIfPresent(Int.self, forKey: .durationMins)
+    }
+}
+
+struct ManualBookingGroupHeader: Decodable, Hashable, Sendable {
+    let id: Int
+    let title: String
+    let category: String
+}
+
 /// One website category column in the manual booking picker.
 struct ManualBookingServiceSection: Identifiable, Hashable, Sendable {
     let category: String
@@ -78,7 +133,8 @@ enum ManualBookingServiceCatalog {
     static func buildSections(
         publicServices: [PublicCatalogService],
         adminServices: [Service],
-        layout: MenuLayoutMeta
+        layout: MenuLayoutMeta,
+        eventTypeBySlug: [String: Int] = [:]
     ) -> [ManualBookingServiceSection] {
         let adminById = Dictionary(uniqueKeysWithValues: adminServices.map { ($0.id, $0) })
         let publicSections = PublicServiceCatalogEngine.buildSections(
@@ -89,7 +145,7 @@ enum ManualBookingServiceCatalog {
         return publicSections.map { section in
             ManualBookingServiceSection(
                 category: section.category,
-                rows: mapRows(section.rows, adminById: adminById),
+                rows: mapRows(section.rows, adminById: adminById, eventTypeBySlug: eventTypeBySlug),
                 comingSoonFooters: section.comingSoonFooters
             )
         }
@@ -110,21 +166,117 @@ enum ManualBookingServiceCatalog {
         )
     }
 
+    /// Prefer Cal event-type map from `GET /api/admin/manual-booking/services`.
+    static func buildSections(
+        from maps: ManualBookingServicesMaps,
+        adminServices: [Service]
+    ) -> [ManualBookingServiceSection] {
+        if !adminServices.isEmpty {
+            return buildSections(
+                from: adminServices
+            ).map { section in
+                ManualBookingServiceSection(
+                    category: section.category,
+                    rows: remapEventTypes(section.rows, eventTypeBySlug: maps.eventTypeBySlug),
+                    comingSoonFooters: section.comingSoonFooters
+                )
+            }
+        }
+
+        let byCategory = Dictionary(grouping: maps.services, by: \.category)
+        return byCategory.keys.sorted().map { category in
+            let options = (byCategory[category] ?? []).map { row in
+                ManualBookingServiceOption(
+                    slug: row.slug,
+                    title: row.title,
+                    description: "",
+                    category: row.category,
+                    price: 0,
+                    eventTypeId: row.eventTypeId,
+                    durationMins: row.durationMins
+                )
+            }
+            return ManualBookingServiceSection(
+                category: category,
+                rows: options.map { .service($0) },
+                comingSoonFooters: []
+            )
+        }
+    }
+
+    private static func remapEventTypes(
+        _ rows: [ManualBookingCatalogRow],
+        eventTypeBySlug: [String: Int]
+    ) -> [ManualBookingCatalogRow] {
+        rows.map { row in
+            switch row {
+            case .service(let option):
+                if let id = eventTypeBySlug[option.slug] {
+                    return .service(
+                        ManualBookingServiceOption(
+                            slug: option.slug,
+                            title: option.title,
+                            description: option.description,
+                            category: option.category,
+                            price: option.price,
+                            eventTypeId: id,
+                            durationMins: option.durationMins
+                        )
+                    )
+                }
+                return .service(option)
+            case .group(let group):
+                let children = group.children.map { child -> ManualBookingServiceOption in
+                    if let id = eventTypeBySlug[child.slug] {
+                        return ManualBookingServiceOption(
+                            slug: child.slug,
+                            title: child.title,
+                            description: child.description,
+                            category: child.category,
+                            price: child.price,
+                            eventTypeId: id,
+                            durationMins: child.durationMins
+                        )
+                    }
+                    return child
+                }
+                return .group(
+                    ManualBookingGroupRow(
+                        id: group.id,
+                        title: group.title,
+                        description: group.description,
+                        price: group.price,
+                        children: children
+                    )
+                )
+            }
+        }
+    }
+
     private static func mapRows(
         _ rows: [PublicCatalogRow],
-        adminById: [Int: Service]
+        adminById: [Int: Service],
+        eventTypeBySlug: [String: Int]
     ) -> [ManualBookingCatalogRow] {
         rows.compactMap { row in
             switch row {
             case .service(let publicRow):
-                guard let option = option(publicRow: publicRow, admin: adminById[publicRow.id]) else {
+                guard let option = option(
+                    publicRow: publicRow,
+                    admin: adminById[publicRow.id],
+                    eventTypeBySlug: eventTypeBySlug
+                ) else {
                     return nil
                 }
                 return .service(option)
 
             case .group(let group):
                 let children = group.children.compactMap {
-                    option(publicRow: $0, admin: adminById[$0.id])
+                    option(
+                        publicRow: $0,
+                        admin: adminById[$0.id],
+                        eventTypeBySlug: eventTypeBySlug
+                    )
                 }
                 let header = adminById[group.header.id]
                 return .group(
@@ -141,15 +293,21 @@ enum ManualBookingServiceCatalog {
         }
     }
 
-    private static func option(publicRow: PublicCatalogService, admin: Service?) -> ManualBookingServiceOption? {
+    private static func option(
+        publicRow: PublicCatalogService,
+        admin: Service?,
+        eventTypeBySlug: [String: Int]
+    ) -> ManualBookingServiceOption? {
         guard let admin,
               admin.isActive,
-              !admin.isGroup,
-              let eventTypeId = admin.calEventId else {
+              !admin.isGroup else {
             return nil
         }
 
         let slug = admin.slug ?? publicRow.slug ?? "service-\(admin.id)"
+        let eventTypeId = eventTypeBySlug[slug] ?? admin.calEventId
+        guard let eventTypeId else { return nil }
+
         return ManualBookingServiceOption(
             slug: slug,
             title: admin.title,
@@ -325,6 +483,11 @@ enum ManualBookingExecution {
         clientPhoneDigits: String,
         api: AdminAPIClient = .shared
     ) async throws {
+        if let clientEmail, !ClientEmail.isValidOptional(clientEmail) {
+            throw ClientEmailValidationError.invalid
+        }
+        let normalizedEmail = clientEmail.flatMap { ClientEmail.validatedOptional($0) }
+
         let start = try StudioTime.slotToStudioLocalStart(isoUtc: slotIsoUtc)
         let clientName = [clientFirstName, clientLastName]
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -338,7 +501,7 @@ enum ManualBookingExecution {
                 clientFirstName: clientFirstName,
                 clientLastName: clientLastName,
                 clientName: clientName,
-                clientEmail: clientEmail,
+                clientEmail: normalizedEmail,
                 clientPhone: clientPhoneDigits
             )
         )
@@ -358,7 +521,7 @@ enum ManualBookingExecution {
                 ManualBookingCompletePayload(
                     calBookingUid: booking.uid,
                     clientName: clientName,
-                    clientEmail: clientEmail,
+                    clientEmail: normalizedEmail,
                     clientPhone: clientPhoneDigits,
                     serviceName: service.title,
                     bookingTime: bookingTime,
@@ -402,12 +565,19 @@ private enum ManualBookingPayloadEncoder {
 
 enum ManualBookingAPIErrorParser {
     static func message(from data: Data?, fallback: String) -> String {
-        guard let data,
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let message = object["message"] as? String,
-              !message.isEmpty else {
-            return fallback
-        }
-        return message
+        guard let data else { return fallback }
+        return AdminAPIResponseParser.message(
+            from: String(data: data, encoding: .utf8),
+            fallback: fallback
+        )
+    }
+}
+
+enum ClientEmailValidationError: LocalizedError {
+    case required
+    case invalid
+
+    var errorDescription: String? {
+        ClientEmail.validationMessage
     }
 }

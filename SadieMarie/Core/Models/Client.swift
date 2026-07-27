@@ -48,6 +48,9 @@ struct Client: Identifiable, Hashable, Equatable, Sendable {
     /// ISO 8601 — used for “Most recent” sort.
     let lastBookingAt: String?
     let stats: ClientCrmStats
+    let strikeCount: Int?
+    let hasConsented: Bool?
+    let consentFormUrl: String?
 
     init(
         id: String,
@@ -58,7 +61,10 @@ struct Client: Identifiable, Hashable, Equatable, Sendable {
         riskFlag: Bool = false,
         hasVaultedCard: Bool = false,
         lastBookingAt: String? = nil,
-        stats: ClientCrmStats = ClientCrmStats()
+        stats: ClientCrmStats = ClientCrmStats(),
+        strikeCount: Int? = nil,
+        hasConsented: Bool? = nil,
+        consentFormUrl: String? = nil
     ) {
         self.id = id
         self.firstName = firstName
@@ -69,6 +75,9 @@ struct Client: Identifiable, Hashable, Equatable, Sendable {
         self.hasVaultedCard = hasVaultedCard
         self.lastBookingAt = lastBookingAt
         self.stats = stats
+        self.strikeCount = strikeCount
+        self.hasConsented = hasConsented
+        self.consentFormUrl = consentFormUrl
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -80,9 +89,15 @@ struct Client: Identifiable, Hashable, Equatable, Sendable {
         case riskFlag
         case hasVaultedCard
         case lastBookingAt
+        case lastBookedAt
         case stats
         case bookingCount
         case ltv
+        case totalBookings
+        case lifetimeValue
+        case strikeCount
+        case hasConsented
+        case consentFormUrl
     }
 
     var displayName: String {
@@ -170,10 +185,20 @@ extension Client: Decodable {
         if let nested = try container.decodeIfPresent(ClientCrmStats.self, forKey: .stats) {
             decodedStats = nested
         } else {
-            let bookingCount = try container.decodeIfPresent(Int.self, forKey: .bookingCount) ?? 0
-            let ltv = try container.decodeIfPresent(Double.self, forKey: .ltv) ?? 0
+            let bookingCount =
+                try container.decodeIfPresent(Int.self, forKey: .bookingCount)
+                ?? container.decodeIfPresent(Int.self, forKey: .totalBookings)
+                ?? 0
+            let ltv =
+                try container.decodeIfPresent(Double.self, forKey: .ltv)
+                ?? container.decodeIfPresent(Double.self, forKey: .lifetimeValue)
+                ?? 0
             decodedStats = ClientCrmStats(bookingCount: bookingCount, ltv: ltv)
         }
+
+        let lastBooking =
+            try container.decodeIfPresent(String.self, forKey: .lastBookingAt)
+            ?? container.decodeIfPresent(String.self, forKey: .lastBookedAt)
 
         self.init(
             id: decodedId,
@@ -183,8 +208,11 @@ extension Client: Decodable {
             phone: try container.decodeIfPresent(String.self, forKey: .phone),
             riskFlag: try container.decodeIfPresent(Bool.self, forKey: .riskFlag) ?? false,
             hasVaultedCard: try container.decodeIfPresent(Bool.self, forKey: .hasVaultedCard) ?? false,
-            lastBookingAt: try container.decodeIfPresent(String.self, forKey: .lastBookingAt),
-            stats: decodedStats
+            lastBookingAt: lastBooking,
+            stats: decodedStats,
+            strikeCount: try container.decodeIfPresent(Int.self, forKey: .strikeCount),
+            hasConsented: try container.decodeIfPresent(Bool.self, forKey: .hasConsented),
+            consentFormUrl: try container.decodeIfPresent(String.self, forKey: .consentFormUrl)
         )
     }
 }

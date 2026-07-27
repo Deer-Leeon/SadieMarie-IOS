@@ -57,33 +57,12 @@ struct WebsiteSlotImageArea: View {
             if let localPreviewImage {
                 localImageView(localPreviewImage)
             } else if let url = item.imageURL {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .empty:
-                        ProgressView()
-                            .tint(AdminTheme.stone700)
-                    case .success(let image):
-                        Group {
-                            if imageContentMode == .fill {
-                                image
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                    .clipped()
-                            } else {
-                                image
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            }
-                        }
-                    case .failure:
-                        emptyPlaceholder
-                    @unknown default:
-                        emptyPlaceholder
-                    }
+                RemoteImageView(url: url, contentMode: imageContentMode) {
+                    ProgressView()
+                        .tint(AdminTheme.stone700)
+                } failure: {
+                    emptyPlaceholder
                 }
-                .id(url.absoluteString)
             } else {
                 emptyPlaceholder
             }

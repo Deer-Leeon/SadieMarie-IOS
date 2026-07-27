@@ -99,7 +99,8 @@ extension ScheduleAvailabilityBlock: Encodable {
     }
 }
 
-/// Date-specific exception. `nil` / omitted times = unavailable all day.
+/// Date-specific Cal.com schedule override.
+/// Wire format always includes `startTime` + `endTime` (`"00:00"`/`"00:00"` = unavailable all day).
 struct ScheduleOverride: Hashable, Equatable, Sendable {
     let date: String
     let startTime: String?
@@ -109,6 +110,12 @@ struct ScheduleOverride: Hashable, Equatable, Sendable {
         self.date = date
         self.startTime = startTime
         self.endTime = endTime
+    }
+
+    /// Closed all day when times are missing or equal (e.g. `"00:00"`/`"00:00"`).
+    nonisolated var isUnavailableAllDay: Bool {
+        guard let startTime, let endTime else { return true }
+        return startTime == endTime
     }
 
     fileprivate enum CodingKeys: String, CodingKey {
@@ -127,8 +134,8 @@ extension ScheduleOverride: Decodable {
         date = try container.decode(String.self, forKey: .date)
 
         if try container.decodeIfPresent(Bool.self, forKey: .unavailable) == true {
-            startTime = nil
-            endTime = nil
+            startTime = "00:00"
+            endTime = "00:00"
             return
         }
 
@@ -143,8 +150,8 @@ extension ScheduleOverride: Encodable {
     nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(date, forKey: .date)
-        try container.encodeIfPresent(startTime, forKey: .startTime)
-        try container.encodeIfPresent(endTime, forKey: .endTime)
+        try container.encode(startTime ?? "00:00", forKey: .startTime)
+        try container.encode(endTime ?? "00:00", forKey: .endTime)
     }
 }
 
@@ -301,7 +308,10 @@ struct AvailabilityUpdateRequest: Equatable, Sendable {
     let overrides: [ScheduleOverride]
 
     func encodedJSON() throws -> Data {
-        try AdminRequestEncoder.encode(self)
+        // Admin availability PATCH expects camelCase (`scheduleId`, `startTime`, …).
+        // AdminRequestEncoder uses snake_case for other routes.
+        let encoder = JSONEncoder()
+        return try encoder.encode(self)
     }
 }
 
@@ -336,7 +346,9 @@ enum AvailabilityJSON {
 private func availabilityParseScheduleId(from object: Any) -> Int? {
     guard let dict = object as? [String: Any] else { return nil }
 
-    if let id = positiveJSONInt(dict["scheduleId"]) ?? positiveJSONInt(dict["schedule_id"]) {
+    if let id = positiveJSONInt(dict["scheduleId"])
+        ?? positiveJSONInt(dict["schedule_id"])
+        ?? positiveJSONInt(dict["id"]) {
         return id
     }
 
@@ -512,7 +524,7 @@ extension AvailabilityResponse {
         { "days": ["Saturday"], "start_time": "10:00", "end_time": "14:00" }
       ],
       "overrides": [
-        { "date": "2026-05-30", "start_time": null, "end_time": null },
+        { "date": "2026-05-30", "start_time": "00:00", "end_time": "00:00" },
         { "date": "2026-06-01", "start_time": "10:00", "end_time": "14:00" }
       ]
     }
@@ -529,7 +541,7 @@ extension AvailabilityResponse {
             ]
         ),
         overrides: [
-            ScheduleOverride(date: "2026-05-30", startTime: nil, endTime: nil),
+            ScheduleOverride(date: "2026-05-30", startTime: "00:00", endTime: "00:00"),
             ScheduleOverride(date: "2026-06-01", startTime: "10:00", endTime: "14:00"),
         ]
     )
