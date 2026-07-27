@@ -337,7 +337,7 @@ struct ClientIdentityPayload: Encodable, Sendable {
 
 struct AppointmentStatusPatchBody: Encodable, Sendable {
     let status: String
-    /// When `status` is `no-show`, `true` charges 50% off-session; `false` marks no-show with a strike only.
+    /// When `status` is `no-show`, `true` charges 100% off-session; `false` marks no-show with a strike only.
     let chargeNoShow: Bool?
 
     init(status: String, chargeNoShow: Bool? = nil) {

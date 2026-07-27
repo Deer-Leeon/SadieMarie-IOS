@@ -107,7 +107,7 @@ struct AppointmentDetailSheet: View {
             titleVisibility: .visible
         ) {
             if canChargeNoShow {
-                Button("Charge 50% & mark no-show", role: .destructive) {
+                Button("Charge 100% & mark no-show", role: .destructive) {
                     Task { await performStatusChange(.noShowCharged) }
                 }
             }
@@ -117,7 +117,7 @@ struct AppointmentDetailSheet: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             if canChargeNoShow {
-                Text("Charge 50% of the service price to the card on file, or mark the no-show without charging.")
+                Text("Charge 100% of the service price to the card on file, or mark the no-show without charging.")
             } else {
                 Text("No vaulted card or service price on file — this will mark a no-show without charging.")
             }

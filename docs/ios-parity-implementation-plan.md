@@ -38,7 +38,7 @@ Awaiting your approval before any code changes.
 - Consent PDF template settings  
 - Website marketing site changes  
 
-**Dependency note:** Lifecycle SMS (admin cancel / no-show / reschedule / late fee) lives on the **website** server. Once that web work is committed/deployed, iOS gets those texts automatically by calling the same endpoints. Item 1 must be fixed or “Charge 50%” still won’t charge.
+**Dependency note:** Lifecycle SMS (admin cancel / no-show / reschedule / late fee) lives on the **website** server. Once that web work is committed/deployed, iOS gets those texts automatically by calling the same endpoints. Item 1 must be fixed or “Charge 100%” still won’t charge.
 
 ---
 
@@ -59,13 +59,13 @@ Awaiting your approval before any code changes.
 
 ### 1–2. Charge vs no-charge no-show
 
-**Problem:** UI says “Charge 50%” but PATCH body only sends `{ status: "no-show" }` → server treats as **no charge** + strike.
+**Problem:** UI says “Charge 100%” but PATCH body only sends `{ status: "no-show" }` → server treats as **no charge** + strike.
 
 **Plan:**
 
 1. Extend `AppointmentStatusPatchBody` with optional `charge_no_show: Bool`.  
 2. Replace single no-show action with two:
-   - **Charge 50% & mark no-show** → `{ status: "no-show", charge_no_show: true }`  
+   - **Charge 100% & mark no-show** → `{ status: "no-show", charge_no_show: true }`  
    - **Mark no-show (no charge)** → `{ status: "no-show", charge_no_show: false }`  
 3. Keep “Charge” disabled when no vaulted card (same as today / web).  
 4. On charge failure (402/400), show server `message`, leave appointment unchanged.  
