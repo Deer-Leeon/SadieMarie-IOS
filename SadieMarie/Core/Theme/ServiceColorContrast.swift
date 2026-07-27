@@ -1,22 +1,16 @@
 import SwiftUI
 
-/// Pastel → black text accents, ported from `app/admin/serviceColors.ts`.
+/// YIQ luminance → black/white text, ported from `app/admin/serviceColors.ts`.
 enum ServiceColorContrast {
-    /// Only these backgrounds render black labels. Everything else keeps white.
-    private static let blackTextAccents: [(r: Int, g: Int, b: Int)] = [
-        (0xfe, 0xdc, 0xea), // lightest pink
-        (0xcb, 0xe5, 0xcb), // lightest green
-        (0xfe, 0xf4, 0xb4), // yellow
-    ]
+    /// Values at or above this get black labels; darker fills keep white.
+    private static let yiqBlackTextThreshold = 128.0
 
-    /// Max city-block RGB distance to count as one of the three pastels.
-    private static let rgbSlop = 18
-
+    /// Prefer black text when the background is light enough that white
+    /// labels fail contrast (sky blue, medium pink, pastels, etc.).
     static func usesBlackText(hex: String) -> Bool {
         guard let rgb = rgbComponents(hex: hex) else { return false }
-        return blackTextAccents.contains { target in
-            abs(rgb.r - target.r) + abs(rgb.g - target.g) + abs(rgb.b - target.b) <= rgbSlop
-        }
+        let yiq = (Double(rgb.r) * 299 + Double(rgb.g) * 587 + Double(rgb.b) * 114) / 1000
+        return yiq >= yiqBlackTextThreshold
     }
 
     private static func rgbComponents(hex: String) -> (r: Int, g: Int, b: Int)? {

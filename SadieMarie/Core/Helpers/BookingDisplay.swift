@@ -75,15 +75,15 @@ enum BookingDisplay {
             accent: accent,
             text: blackText ? .black : AdminTheme.onServiceColorText,
             textMuted: blackText
-                ? Color.black.opacity(0.65)
+                ? Color.black.opacity(0.72)
                 : AdminTheme.onServiceColorTextMuted
         )
     }
 
     /// Primary + secondary text for list rows and calendar blocks.
     ///
-    /// Service-colored rows use white type by default; the three pastel accents
-    /// flip to black (see `ServiceColorContrast`). Status chips use semantic
+    /// Service-colored rows flip black/white from YIQ luminance
+    /// (see `ServiceColorContrast`). Status chips use semantic
     /// colored pills. Neutral / no-show / pending rows use dark stone text.
     static func rowTextColors(for appointment: Appointment) -> (primary: Color, secondary: Color) {
         if usesServiceColorBackground(appointment),

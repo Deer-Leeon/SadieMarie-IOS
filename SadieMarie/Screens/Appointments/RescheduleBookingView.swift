@@ -35,14 +35,21 @@ struct RescheduleBookingView: View {
                             errorBanner(error)
                         }
 
-                        switch viewModel.step {
-                        case .service:
-                            serviceStep
-                        case .schedule:
-                            ManualBookingSlotPickerView(
-                                viewModel: viewModel.booking,
-                                layout: .compact
+                        if viewModel.isBootstrapping {
+                            ManualBookingLoadingPanel(
+                                title: "Loading times",
+                                subtitle: "Preparing open slots for this appointment"
                             )
+                        } else {
+                            switch viewModel.step {
+                            case .service:
+                                serviceStep
+                            case .schedule:
+                                ManualBookingSlotPickerView(
+                                    viewModel: viewModel.booking,
+                                    layout: .compact
+                                )
+                            }
                         }
                     }
                     .padding(.horizontal, 20)
@@ -220,7 +227,7 @@ struct RescheduleBookingView: View {
                         onBack()
                     }
                 } label: {
-                    Text(viewModel.step == .service ? "Cancel" : "Back")
+                    Text(viewModel.step == .service || viewModel.isBootstrapping ? "Cancel" : "Back")
                         .font(AdminTheme.fontAdminSans(size: 12, weight: .semibold))
                         .tracking(1.2)
                         .textCase(.uppercase)
@@ -237,7 +244,21 @@ struct RescheduleBookingView: View {
                 .buttonStyle(.plain)
                 .disabled(viewModel.isCompleting)
 
-                if viewModel.step == .service {
+                if viewModel.isBootstrapping {
+                    Button {} label: {
+                        Text("Loading…")
+                            .font(AdminTheme.fontAdminSans(size: 12, weight: .semibold))
+                            .tracking(1.2)
+                            .textCase(.uppercase)
+                            .foregroundStyle(AdminTheme.stone500)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(AdminTheme.stone200)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(true)
+                } else if viewModel.step == .service {
                     Button {
                         Task { await viewModel.advanceToSchedule() }
                     } label: {
@@ -303,11 +324,12 @@ final class RescheduleViewModel {
 
     let appointment: Appointment
     private(set) var booking: ManualBookingViewModel
-    private(set) var step: Step = .service
+    private(set) var step: Step = .schedule
+    private(set) var isBootstrapping = true
     private(set) var isCompleting = false
     private(set) var errorMessage: String?
     /// When the appointment already has a matching service slug, skip the picker.
-    private(set) var needsServicePick = true
+    private(set) var needsServicePick = false
 
     init(appointment: Appointment) {
         self.appointment = appointment
@@ -318,6 +340,10 @@ final class RescheduleViewModel {
     }
 
     var headerTitle: String {
+        if isBootstrapping {
+            let name = appointment.serviceName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return name.isEmpty ? "Move appointment" : name
+        }
         if step == .schedule, let service = booking.selectedService {
             return service.title
         }
@@ -333,6 +359,9 @@ final class RescheduleViewModel {
     }
 
     func bootstrap() async {
+        isBootstrapping = true
+        defer { isBootstrapping = false }
+
         booking.clientFirstName = appointment.clientFirstName ?? ""
         booking.clientLastName = appointment.clientLastName ?? ""
         booking.clientPhone = appointment.clientPhone ?? ""
@@ -342,8 +371,8 @@ final class RescheduleViewModel {
         if let slug = appointment.serviceSlug,
            let match = findService(slug: slug) {
             needsServicePick = false
-            await booking.prepareSchedule(for: match)
             step = .schedule
+            await booking.prepareSchedule(for: match)
         } else {
             needsServicePick = true
             step = .service
