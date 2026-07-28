@@ -56,7 +56,11 @@ struct ClientsView: View {
                     backLabel: "Clients",
                     onBack: { selectedClient = nil },
                     onClose: { selectedClient = nil },
-                    onMutated: { Task { await viewModel.load() } }
+                    onMutated: { Task { await viewModel.load() } },
+                    onClientUpdated: { updated in
+                        viewModel.upsert(updated)
+                        selectedClient = updated
+                    }
                 )
             }
         }

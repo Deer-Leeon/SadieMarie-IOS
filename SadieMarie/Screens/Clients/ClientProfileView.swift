@@ -7,7 +7,11 @@ struct ClientProfileView: View {
     var onBack: () -> Void
     var onClose: () -> Void
     var onMutated: () -> Void
+    /// Soft CRM patches (e.g. clearing the no-show flag) that should not
+    /// dismiss parent sheets — calendar / directory update in place.
+    var onClientUpdated: ((Client) -> Void)? = nil
 
+    @Environment(AppState.self) private var appState
     @State private var viewModel: ClientProfileViewModel
     @State private var showEditSheet = false
     @State private var selectedAppointment: Appointment?
@@ -20,13 +24,15 @@ struct ClientProfileView: View {
         backLabel: String,
         onBack: @escaping () -> Void,
         onClose: @escaping () -> Void,
-        onMutated: @escaping () -> Void
+        onMutated: @escaping () -> Void,
+        onClientUpdated: ((Client) -> Void)? = nil
     ) {
         self.entry = entry
         self.backLabel = backLabel
         self.onBack = onBack
         self.onClose = onClose
         self.onMutated = onMutated
+        self.onClientUpdated = onClientUpdated
         _viewModel = State(initialValue: ClientProfileViewModel(entry: entry))
     }
 
@@ -332,8 +338,13 @@ struct ClientProfileView: View {
             Button("Yes, clear flag", role: .destructive) {
                 Task {
                     let ok = await viewModel.clearNoShowFlag()
-                    if ok {
-                        onMutated()
+                    if ok, let client = viewModel.client {
+                        appState.noteClientNoShowFlag(
+                            phone: client.phone,
+                            email: client.email,
+                            flag: false
+                        )
+                        onClientUpdated?(client)
                     }
                 }
             }
@@ -616,4 +627,5 @@ struct ClientProfileView: View {
         onClose: {},
         onMutated: {}
     )
+    .environment(AppState())
 }

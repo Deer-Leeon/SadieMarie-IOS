@@ -18,6 +18,7 @@ struct BookingsView: View {
     }
 
     @Environment(Clerk.self) private var clerk
+    @Environment(AppState.self) private var appState
 
     @State private var viewModel = BookingsViewModel()
     @State private var mode: CalendarMode = .threeDay
@@ -25,6 +26,7 @@ struct BookingsView: View {
     @State private var dayFocus: DayFocus?
     @State private var manualBookingFocus: ManualBookingFocus?
     @State private var showSettings = false
+    @State private var appliedNoShowFlagRevision = 0
 
     var body: some View {
         NavigationStack {
@@ -99,6 +101,27 @@ struct BookingsView: View {
 
             .onChange(of: tabVisitID) { _, _ in
                 mode = .threeDay
+                Task {
+                    guard clerk.session != nil else { return }
+                    await viewModel.load()
+                }
+            }
+            .onChange(of: appState.lastNoShowFlagPatch?.revision) { _, revision in
+                guard let patch = appState.lastNoShowFlagPatch,
+                      let revision,
+                      revision != appliedNoShowFlagRevision
+                else { return }
+                appliedNoShowFlagRevision = revision
+                viewModel.applyClientNoShowFlag(
+                    phone: patch.phone,
+                    email: patch.email,
+                    flag: patch.flag
+                )
+                if let selected = selectedAppointment,
+                   selected.belongsToClient(phone: patch.phone, email: patch.email)
+                {
+                    selectedAppointment = selected.withClientNoShowFlag(patch.flag)
+                }
             }
             .sheet(item: $selectedAppointment) { appointment in
                 AppointmentDetailSheet(

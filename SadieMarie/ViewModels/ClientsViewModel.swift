@@ -48,6 +48,15 @@ final class ClientsViewModel {
         }
     }
 
+    /// Replace a client row in-place after a CRM patch (flag clear, edit, etc.).
+    func upsert(_ client: Client) {
+        if let index = clients.firstIndex(where: { $0.id == client.id }) {
+            clients[index] = client
+        } else {
+            clients.insert(client, at: 0)
+        }
+    }
+
     private static func sorted(_ clients: [Client], by option: ClientSortOption) -> [Client] {
         switch option {
         case .name:

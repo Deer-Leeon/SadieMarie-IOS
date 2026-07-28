@@ -157,6 +157,49 @@ extension Appointment {
         guard let status else { return nil }
         return AppointmentStatus(rawValue: status.lowercased())
     }
+
+    /// Copy with an updated CRM no-show attention flag (calendar pills).
+    func withClientNoShowFlag(_ flag: Bool) -> Appointment {
+        Appointment(
+            id: id,
+            calUid: calUid,
+            clientFirstName: clientFirstName,
+            clientLastName: clientLastName,
+            bookingTime: bookingTime,
+            endTime: endTime,
+            serviceName: serviceName,
+            status: status,
+            clientPhone: clientPhone,
+            clientEmail: clientEmail,
+            servicePrice: servicePrice,
+            serviceDescription: serviceDescription,
+            serviceSlug: serviceSlug,
+            serviceColor: serviceColor,
+            stripeCustomerId: stripeCustomerId,
+            bookingNotes: bookingNotes,
+            clientNoShowFlag: flag
+        )
+    }
+
+    /// Match calendar rows to a CRM client by phone digits and/or email.
+    func belongsToClient(phone: String?, email: String?) -> Bool {
+        let aptDigits = (clientPhone ?? "").filter(\.isNumber)
+        let clientDigits = (phone ?? "").filter(\.isNumber)
+        if !aptDigits.isEmpty, !clientDigits.isEmpty {
+            if aptDigits == clientDigits
+                || aptDigits.hasSuffix(clientDigits)
+                || clientDigits.hasSuffix(aptDigits)
+            {
+                return true
+            }
+        }
+        let aptEmail = (clientEmail ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let clientEmailNorm = (email ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !aptEmail.isEmpty, !clientEmailNorm.isEmpty, aptEmail == clientEmailNorm {
+            return true
+        }
+        return false
+    }
 }
 
 // MARK: - API envelope

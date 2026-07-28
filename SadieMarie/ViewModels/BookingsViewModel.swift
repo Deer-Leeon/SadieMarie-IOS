@@ -39,6 +39,16 @@ final class BookingsViewModel {
         }
     }
 
+    /// Optimistically update calendar pill flags when a CRM client’s
+    /// no-show attention flag changes (clear or re-activate).
+    func applyClientNoShowFlag(phone: String?, email: String?, flag: Bool) {
+        appointments = appointments.map { apt in
+            apt.belongsToClient(phone: phone, email: email)
+                ? apt.withClientNoShowFlag(flag)
+                : apt
+        }
+    }
+
     private func message(for error: AdminAPIError) -> String {
         switch error {
         case .unauthorized, .noActiveSession:
