@@ -111,15 +111,15 @@ struct AppointmentDetailSheet: View {
                     Task { await performStatusChange(.noShowCharged) }
                 }
             }
-            Button("Mark no-show (no charge)") {
+            Button("Mark no-show · flag (no charge)") {
                 Task { await performStatusChange(.noShowNoCharge) }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             if canChargeNoShow {
-                Text("Charge 100% of the service price to the card on file, or mark the no-show without charging.")
+                Text("This always adds 1 to their no-show count. Charge 100% of the service price, or choose no charge to also flag them on the calendar and profile.")
             } else {
-                Text("No vaulted card or service price on file — this will mark a no-show without charging.")
+                Text("No vaulted card or service price on file. Marking no-show will flag them and increase their no-show count. A fee cannot be charged automatically.")
             }
         }
         .confirmationDialog(
