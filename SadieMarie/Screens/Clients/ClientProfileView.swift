@@ -13,6 +13,7 @@ struct ClientProfileView: View {
     @State private var selectedAppointment: Appointment?
     @State private var historyMutated = false
     @State private var showManualBooking = false
+    @State private var showClearNoShowFlagConfirm = false
 
     init(
         entry: ClientProfileEntry,
@@ -298,12 +299,7 @@ struct ClientProfileView: View {
             Spacer(minLength: 0)
 
             Button {
-                Task {
-                    let ok = await viewModel.clearNoShowFlag()
-                    if ok {
-                        onMutated()
-                    }
-                }
+                showClearNoShowFlagConfirm = true
             } label: {
                 Text(viewModel.isClearingNoShowFlag ? "Clearing…" : "Clear flag")
                     .font(AdminTheme.fontAdminSans(size: 11, weight: .semibold))
@@ -328,6 +324,23 @@ struct ClientProfileView: View {
                 .stroke(AdminTheme.pendingBorder, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 10))
+        .confirmationDialog(
+            "Clear this flag?",
+            isPresented: $showClearNoShowFlagConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Yes, clear flag", role: .destructive) {
+                Task {
+                    let ok = await viewModel.clearNoShowFlag()
+                    if ok {
+                        onMutated()
+                    }
+                }
+            }
+            Button("Keep flag", role: .cancel) {}
+        } message: {
+            Text("They’ll no longer show as flagged on the calendar or profile. Their no-show count will not change. A future uncharged no-show will flag them again.")
+        }
     }
 
     private var consentCard: some View {
