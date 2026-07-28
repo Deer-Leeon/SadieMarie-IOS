@@ -99,19 +99,24 @@ struct ClientRowView: View {
     @ViewBuilder
     private var badgeColumn: some View {
         VStack(alignment: .trailing, spacing: 6) {
-            if client.riskFlag {
-                Text("Risk")
-                    .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
-                    .tracking(AdminTheme.Typography.statusPillTracking)
-                    .foregroundStyle(AdminTheme.awaitingPaymentText)
-                    .padding(.horizontal, AdminTheme.Spacing.pillHorizontal)
-                    .padding(.vertical, AdminTheme.Spacing.pillVertical)
-                    .background(AdminTheme.awaitingPaymentBackground)
-                    .overlay(
-                        Capsule()
-                            .stroke(AdminTheme.awaitingPaymentBorder, lineWidth: 1)
-                    )
-                    .clipShape(Capsule())
+            if client.noShowFlag == true {
+                HStack(spacing: 4) {
+                    Image(systemName: "flag.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                    Text("No-show")
+                        .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
+                        .tracking(AdminTheme.Typography.statusPillTracking)
+                }
+                .foregroundStyle(AdminTheme.awaitingPaymentText)
+                .padding(.horizontal, AdminTheme.Spacing.pillHorizontal)
+                .padding(.vertical, AdminTheme.Spacing.pillVertical)
+                .background(AdminTheme.awaitingPaymentBackground)
+                .overlay(
+                    Capsule()
+                        .stroke(AdminTheme.awaitingPaymentBorder, lineWidth: 1)
+                )
+                .clipShape(Capsule())
+                .accessibilityLabel("No-show flag active")
             }
 
             if client.hasVaultedCard {

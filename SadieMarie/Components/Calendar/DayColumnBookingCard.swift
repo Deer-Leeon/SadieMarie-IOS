@@ -12,6 +12,7 @@ struct DayColumnBookingCard: View {
     let durationMinutes: Int
 
     private var isNoShow: Bool { BookingDisplay.isNoShow(appointment) }
+    private var hasNoShowFlag: Bool { appointment.clientNoShowFlag }
     private var textColors: (primary: Color, secondary: Color) {
         BookingDisplay.rowTextColors(for: appointment)
     }
@@ -31,6 +32,9 @@ struct DayColumnBookingCard: View {
 
     /// Soft edge only for uncolored / pending rows. Service fills are solid like web.
     private var border: Color? {
+        if hasNoShowFlag && !isNoShow {
+            return AdminTheme.awaitingPaymentText.opacity(0.55)
+        }
         if usesServiceBackground { return nil }
         if BookingDisplay.isPending(appointment) {
             return AdminTheme.pendingBorder
@@ -111,6 +115,18 @@ struct DayColumnBookingCard: View {
             .padding(.horizontal, isWeekStyle ? 3 : 5)
             .padding(.vertical, isWeekStyle ? 2 : 4)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            if hasNoShowFlag {
+                Image(systemName: "flag.fill")
+                    .font(.system(size: isWeekStyle ? 7 : 8, weight: .bold))
+                    .foregroundStyle(AdminTheme.awaitingPaymentText)
+                    .padding(2)
+                    .background(AdminTheme.awaitingPaymentBackground.opacity(0.95))
+                    .clipShape(RoundedRectangle(cornerRadius: 2))
+                    .padding(2)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .accessibilityLabel("No-show flag")
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: blockHeight, alignment: .top)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))

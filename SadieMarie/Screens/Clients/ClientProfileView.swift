@@ -129,6 +129,9 @@ struct ClientProfileView: View {
                 identityCard
                 bookAppointmentButton
                 crmBar
+                if viewModel.showsNoShowFlag {
+                    noShowFlagBanner
+                }
                 consentCard
                 galleryCard
                 notesCard
@@ -234,9 +237,9 @@ struct ClientProfileView: View {
                     .frame(height: 44)
                     .overlay(AdminTheme.stone200)
                 crmColumn(
-                    title: "Strikes",
-                    value: "\(viewModel.crmStats.strikeCount)",
-                    valueColor: viewModel.crmStats.strikeCount > 0
+                    title: "No-shows",
+                    value: "\(viewModel.crmStats.noShowCount)",
+                    valueColor: viewModel.crmStats.noShowCount > 0
                         ? AdminTheme.rose600
                         : AdminTheme.stone900
                 )
@@ -268,6 +271,63 @@ struct ClientProfileView: View {
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var noShowFlagBanner: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "flag.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(AdminTheme.awaitingPaymentText)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("No-show flag active")
+                    .font(AdminTheme.fontAdminSans(size: 14, weight: .semibold))
+                    .foregroundStyle(AdminTheme.stone900)
+                Text("Set when a no-show was marked without charging. Clear it when you’ve reviewed — the lifetime no-show count stays.")
+                    .font(AdminTheme.fontAdminSans(size: 12))
+                    .foregroundStyle(AdminTheme.stone700)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let error = viewModel.noShowFlagError {
+                    Text(error)
+                        .font(AdminTheme.fontAdminSans(size: 12))
+                        .foregroundStyle(AdminTheme.rose600)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            Button {
+                Task {
+                    let ok = await viewModel.clearNoShowFlag()
+                    if ok {
+                        onMutated()
+                    }
+                }
+            } label: {
+                Text(viewModel.isClearingNoShowFlag ? "Clearing…" : "Clear flag")
+                    .font(AdminTheme.fontAdminSans(size: 11, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundStyle(AdminTheme.stone900)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(AdminTheme.cardFill)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(AdminTheme.pendingBorder, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain)
+            .disabled(viewModel.isClearingNoShowFlag)
+        }
+        .padding(12)
+        .background(AdminTheme.awaitingPaymentBackground.opacity(0.85))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(AdminTheme.pendingBorder, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     private var consentCard: some View {

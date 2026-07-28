@@ -179,6 +179,19 @@ extension AdminAPIClient {
         )
         return response.client
     }
+
+    /// `PATCH /api/admin/clients/{id}` — clear the dismissible no-show attention flag.
+    func clearClientNoShowFlag(id: String) async throws -> Client {
+        let body = try ClearClientNoShowFlagPayload().encodedJSON()
+        let response = try await fetch(
+            "clients/\(id)",
+            as: ClientMutationResponse.self,
+            method: .patch,
+            body: body,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        return response.client
+    }
 }
 
 struct ClientPhotoUploadResponse: Decodable, Sendable {

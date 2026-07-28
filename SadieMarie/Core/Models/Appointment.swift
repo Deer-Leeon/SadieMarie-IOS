@@ -28,6 +28,8 @@ struct Appointment: Identifiable, Hashable, Sendable {
     let stripeCustomerId: String?
     /// Client-entered notes from Cal booking form ("Additional notes").
     let bookingNotes: String?
+    /// True when the linked CRM client has an active no-show attention flag.
+    let clientNoShowFlag: Bool
 
     nonisolated init(
         id: String,
@@ -45,7 +47,8 @@ struct Appointment: Identifiable, Hashable, Sendable {
         serviceSlug: String? = nil,
         serviceColor: String? = nil,
         stripeCustomerId: String? = nil,
-        bookingNotes: String? = nil
+        bookingNotes: String? = nil,
+        clientNoShowFlag: Bool = false
     ) {
         self.id = id
         self.calUid = calUid
@@ -63,6 +66,7 @@ struct Appointment: Identifiable, Hashable, Sendable {
         self.serviceColor = serviceColor
         self.stripeCustomerId = stripeCustomerId
         self.bookingNotes = bookingNotes
+        self.clientNoShowFlag = clientNoShowFlag
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -82,6 +86,7 @@ struct Appointment: Identifiable, Hashable, Sendable {
         case serviceColor
         case stripeCustomerId
         case bookingNotes
+        case clientNoShowFlag
     }
 }
 
@@ -104,7 +109,8 @@ extension Appointment: Decodable {
             serviceSlug: try container.decodeIfPresent(String.self, forKey: .serviceSlug),
             serviceColor: try container.decodeIfPresent(String.self, forKey: .serviceColor),
             stripeCustomerId: try container.decodeIfPresent(String.self, forKey: .stripeCustomerId),
-            bookingNotes: try container.decodeIfPresent(String.self, forKey: .bookingNotes)
+            bookingNotes: try container.decodeIfPresent(String.self, forKey: .bookingNotes),
+            clientNoShowFlag: try container.decodeIfPresent(Bool.self, forKey: .clientNoShowFlag) ?? false
         )
     }
 }
@@ -128,6 +134,7 @@ extension Appointment: Encodable {
         try container.encodeIfPresent(serviceColor, forKey: .serviceColor)
         try container.encodeIfPresent(stripeCustomerId, forKey: .stripeCustomerId)
         try container.encodeIfPresent(bookingNotes, forKey: .bookingNotes)
+        try container.encode(clientNoShowFlag, forKey: .clientNoShowFlag)
     }
 }
 

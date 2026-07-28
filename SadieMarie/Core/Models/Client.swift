@@ -49,6 +49,8 @@ struct Client: Identifiable, Hashable, Equatable, Sendable {
     let lastBookingAt: String?
     let stats: ClientCrmStats
     let strikeCount: Int?
+    let noShowCount: Int?
+    let noShowFlag: Bool?
     let hasConsented: Bool?
     let consentFormUrl: String?
 
@@ -63,6 +65,8 @@ struct Client: Identifiable, Hashable, Equatable, Sendable {
         lastBookingAt: String? = nil,
         stats: ClientCrmStats = ClientCrmStats(),
         strikeCount: Int? = nil,
+        noShowCount: Int? = nil,
+        noShowFlag: Bool? = nil,
         hasConsented: Bool? = nil,
         consentFormUrl: String? = nil
     ) {
@@ -76,6 +80,8 @@ struct Client: Identifiable, Hashable, Equatable, Sendable {
         self.lastBookingAt = lastBookingAt
         self.stats = stats
         self.strikeCount = strikeCount
+        self.noShowCount = noShowCount ?? strikeCount
+        self.noShowFlag = noShowFlag
         self.hasConsented = hasConsented
         self.consentFormUrl = consentFormUrl
     }
@@ -96,6 +102,8 @@ struct Client: Identifiable, Hashable, Equatable, Sendable {
         case totalBookings
         case lifetimeValue
         case strikeCount
+        case noShowCount
+        case noShowFlag
         case hasConsented
         case consentFormUrl
     }
@@ -211,6 +219,8 @@ extension Client: Decodable {
             lastBookingAt: lastBooking,
             stats: decodedStats,
             strikeCount: try container.decodeIfPresent(Int.self, forKey: .strikeCount),
+            noShowCount: try container.decodeIfPresent(Int.self, forKey: .noShowCount),
+            noShowFlag: try container.decodeIfPresent(Bool.self, forKey: .noShowFlag),
             hasConsented: try container.decodeIfPresent(Bool.self, forKey: .hasConsented),
             consentFormUrl: try container.decodeIfPresent(String.self, forKey: .consentFormUrl)
         )

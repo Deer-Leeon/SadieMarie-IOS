@@ -10,6 +10,7 @@ struct TimelinePillView: View {
     private var appointment: Appointment { positioned.appointment }
 
     private var isNoShow: Bool { BookingDisplay.isNoShow(appointment) }
+    private var hasNoShowFlag: Bool { appointment.clientNoShowFlag }
 
     private var serviceColors: BookingDisplay.ServiceColor? {
         isNoShow ? nil : BookingDisplay.serviceColor(for: appointment)
@@ -60,6 +61,18 @@ struct TimelinePillView: View {
                 .frame(width: frameWidth, height: frameHeight, alignment: .topLeading)
                 .background(backgroundColor)
                 .overlay(pillBorder)
+                .overlay(alignment: .topTrailing) {
+                    if hasNoShowFlag {
+                        Image(systemName: "flag.fill")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(AdminTheme.awaitingPaymentText)
+                            .padding(3)
+                            .background(AdminTheme.awaitingPaymentBackground.opacity(0.95))
+                            .clipShape(RoundedRectangle(cornerRadius: 3))
+                            .padding(3)
+                            .accessibilityLabel("No-show flag")
+                    }
+                }
                 .clipShape(RoundedRectangle(cornerRadius: 4))
         }
         .buttonStyle(.plain)
@@ -156,6 +169,16 @@ struct TimelinePillView: View {
                     Rectangle()
                         .fill(AdminTheme.gray400)
                         .frame(width: 3)
+                }
+        } else if hasNoShowFlag {
+            RoundedRectangle(cornerRadius: 4)
+                .strokeBorder(AdminTheme.awaitingPaymentText.opacity(0.55), lineWidth: 1)
+                .overlay(alignment: .leading) {
+                    if serviceColors == nil {
+                        Rectangle()
+                            .fill(AdminTheme.stone900)
+                            .frame(width: 3)
+                    }
                 }
         } else if serviceColors == nil {
             RoundedRectangle(cornerRadius: 4)

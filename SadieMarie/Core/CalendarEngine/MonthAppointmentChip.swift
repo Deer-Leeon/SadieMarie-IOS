@@ -4,7 +4,13 @@ import SwiftUI
 struct MonthAppointmentChip: View {
     let appointment: Appointment
 
+    private var isNoShow: Bool { BookingDisplay.isNoShow(appointment) }
+    private var hasNoShowFlag: Bool { appointment.clientNoShowFlag }
+
     private var background: Color {
+        if isNoShow {
+            return AdminTheme.stone50
+        }
         if BookingDisplay.usesServiceColorBackground(appointment),
            let colors = BookingDisplay.serviceColor(for: appointment) {
             return colors.accent.opacity(0.92)
@@ -16,6 +22,9 @@ struct MonthAppointmentChip: View {
     }
 
     private var foreground: Color {
+        if isNoShow {
+            return AdminTheme.gray400
+        }
         if BookingDisplay.usesServiceColorBackground(appointment),
            let colors = BookingDisplay.serviceColor(for: appointment) {
             return colors.text
@@ -27,15 +36,32 @@ struct MonthAppointmentChip: View {
     }
 
     var body: some View {
-        Text(BookingDisplay.CalendarFormatting.formattedChipTime(for: appointment))
-            .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
-            .foregroundStyle(foreground)
-            .lineLimit(1)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(background)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .allowsHitTesting(false)
+        HStack(spacing: 2) {
+            Text(BookingDisplay.CalendarFormatting.formattedChipTime(for: appointment))
+                .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
+                .foregroundStyle(foreground)
+                .lineLimit(1)
+                .strikethrough(isNoShow, color: foreground)
+
+            if hasNoShowFlag {
+                Image(systemName: "flag.fill")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(AdminTheme.awaitingPaymentText)
+                    .accessibilityLabel("No-show flag")
+            }
+        }
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(background)
+        .overlay {
+            if hasNoShowFlag && !isNoShow {
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(AdminTheme.awaitingPaymentText.opacity(0.55), lineWidth: 1)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .opacity(isNoShow ? AdminTheme.Layout.noShowOpacity : 1)
+        .allowsHitTesting(false)
     }
 }

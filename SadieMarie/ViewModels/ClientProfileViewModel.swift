@@ -202,6 +202,41 @@ final class ClientProfileViewModel {
         }
     }
 
+    private(set) var isClearingNoShowFlag = false
+    private(set) var noShowFlagError: String?
+
+    var showsNoShowFlag: Bool {
+        crmStats.noShowFlag || client?.noShowFlag == true
+    }
+
+    func clearNoShowFlag() async -> Bool {
+        guard let clientId = client?.id else { return false }
+
+        isClearingNoShowFlag = true
+        noShowFlagError = nil
+        defer { isClearingNoShowFlag = false }
+
+        do {
+            let updated = try await AdminAPIClient.shared.clearClientNoShowFlag(id: clientId)
+            client = mergeClient(updated)
+            crmStats = ClientHistoryCrmStats(
+                totalBookings: crmStats.totalBookings,
+                lifetimeValue: crmStats.lifetimeValue,
+                hasVaultedCard: crmStats.hasVaultedCard,
+                riskFlag: crmStats.riskFlag,
+                lastBookedAt: crmStats.lastBookedAt,
+                strikeCount: crmStats.strikeCount,
+                noShowCount: updated.noShowCount ?? crmStats.noShowCount,
+                noShowFlag: false
+            )
+            return true
+        } catch {
+            noShowFlagError =
+                (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            return false
+        }
+    }
+
     // MARK: - Private
 
     private func bootstrapClient(from appointment: Appointment, email: String?) async {
@@ -245,6 +280,27 @@ final class ClientProfileViewModel {
             let historyResponse = try await historyTask
             history = historyResponse.appointments
             crmStats = historyResponse.crmStats
+            if let existing = client {
+                client = Client(
+                    id: existing.id,
+                    firstName: existing.firstName,
+                    lastName: existing.lastName,
+                    email: existing.email,
+                    phone: existing.phone,
+                    riskFlag: historyResponse.crmStats.riskFlag || existing.riskFlag,
+                    hasVaultedCard: historyResponse.crmStats.hasVaultedCard || existing.hasVaultedCard,
+                    lastBookingAt: existing.lastBookingAt,
+                    stats: ClientCrmStats(
+                        bookingCount: historyResponse.crmStats.totalBookings,
+                        ltv: historyResponse.crmStats.lifetimeValue
+                    ),
+                    strikeCount: existing.strikeCount,
+                    noShowCount: historyResponse.crmStats.noShowCount,
+                    noShowFlag: historyResponse.crmStats.noShowFlag,
+                    hasConsented: existing.hasConsented,
+                    consentFormUrl: existing.consentFormUrl
+                )
+            }
         } catch {
             dossierError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
@@ -275,6 +331,8 @@ final class ClientProfileViewModel {
                 ltv: crmStats.lifetimeValue
             ),
             strikeCount: updated.strikeCount ?? client?.strikeCount,
+            noShowCount: updated.noShowCount ?? client?.noShowCount,
+            noShowFlag: updated.noShowFlag ?? client?.noShowFlag,
             hasConsented: updated.hasConsented ?? client?.hasConsented,
             consentFormUrl: updated.consentFormUrl ?? client?.consentFormUrl
         )

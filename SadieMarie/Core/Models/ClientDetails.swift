@@ -10,6 +10,8 @@ struct ClientHistoryCrmStats: Hashable, Sendable {
     let riskFlag: Bool
     let lastBookedAt: String?
     let strikeCount: Int
+    let noShowCount: Int
+    let noShowFlag: Bool
 
     nonisolated init(
         totalBookings: Int = 0,
@@ -17,7 +19,9 @@ struct ClientHistoryCrmStats: Hashable, Sendable {
         hasVaultedCard: Bool = false,
         riskFlag: Bool = false,
         lastBookedAt: String? = nil,
-        strikeCount: Int = 0
+        strikeCount: Int = 0,
+        noShowCount: Int = 0,
+        noShowFlag: Bool = false
     ) {
         self.totalBookings = totalBookings
         self.lifetimeValue = lifetimeValue
@@ -25,6 +29,8 @@ struct ClientHistoryCrmStats: Hashable, Sendable {
         self.riskFlag = riskFlag
         self.lastBookedAt = lastBookedAt
         self.strikeCount = strikeCount
+        self.noShowCount = noShowCount > 0 ? noShowCount : strikeCount
+        self.noShowFlag = noShowFlag
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -34,19 +40,25 @@ struct ClientHistoryCrmStats: Hashable, Sendable {
         case riskFlag
         case lastBookedAt
         case strikeCount
+        case noShowCount
+        case noShowFlag
     }
 }
 
 extension ClientHistoryCrmStats: Decodable {
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedStrike = try container.decodeIfPresent(Int.self, forKey: .strikeCount) ?? 0
+        let decodedNoShows = try container.decodeIfPresent(Int.self, forKey: .noShowCount) ?? 0
         self.init(
             totalBookings: try container.decodeIfPresent(Int.self, forKey: .totalBookings) ?? 0,
             lifetimeValue: try container.decodeIfPresent(Double.self, forKey: .lifetimeValue) ?? 0,
             hasVaultedCard: try container.decodeIfPresent(Bool.self, forKey: .hasVaultedCard) ?? false,
             riskFlag: try container.decodeIfPresent(Bool.self, forKey: .riskFlag) ?? false,
             lastBookedAt: try container.decodeIfPresent(String.self, forKey: .lastBookedAt),
-            strikeCount: try container.decodeIfPresent(Int.self, forKey: .strikeCount) ?? 0
+            strikeCount: decodedStrike,
+            noShowCount: decodedNoShows,
+            noShowFlag: try container.decodeIfPresent(Bool.self, forKey: .noShowFlag) ?? false
         )
     }
 }
@@ -333,11 +345,24 @@ struct ClientIdentityPayload: Encodable, Sendable {
     }
 }
 
+/// `PATCH /api/admin/clients/{id}` body that only clears the attention flag.
+struct ClearClientNoShowFlagPayload: Encodable, Sendable {
+    let noShowFlag = false
+
+    nonisolated func encodedJSON() throws -> Data {
+        try AdminRequestEncoder.encode(self)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case noShowFlag
+    }
+}
+
 // MARK: - Appointments
 
 struct AppointmentStatusPatchBody: Encodable, Sendable {
     let status: String
-    /// When `status` is `no-show`, `true` charges 100% off-session; `false` marks no-show with a strike only.
+    /// When `status` is `no-show`, `true` charges 100% off-session; `false` marks no-show without charging (reactivates attention flag).
     let chargeNoShow: Bool?
 
     init(status: String, chargeNoShow: Bool? = nil) {
