@@ -5,9 +5,12 @@ struct AppointmentDetailSheet: View {
     let appointment: Appointment
     var onDismiss: () -> Void
     var onMutated: () -> Void
+    var onPaymentMutated: (AppointmentPaymentSummary?) -> Void = { _ in }
 
     @State private var statusAction: StatusAction?
     @State private var statusError: String?
+    @State private var statusSuccessMessage: String?
+    @State private var showStatusSuccessAlert = false
     @State private var showNoShowConfirm = false
     @State private var showCancelConfirm = false
     @State private var showReschedule = false
@@ -17,7 +20,12 @@ struct AppointmentDetailSheet: View {
         BookingDisplay.detailHeaderStatus(for: appointment)
     }
 
+    private var isReadOnly: Bool {
+        BookingDisplay.isReadOnly(appointment)
+    }
+
     private var canReschedule: Bool {
+        guard !isReadOnly else { return false }
         guard let slug = appointment.serviceSlug, !slug.isEmpty else {
             return false
         }
@@ -25,11 +33,25 @@ struct AppointmentDetailSheet: View {
     }
 
     private var canChargeNoShow: Bool {
+        guard !isReadOnly else { return false }
         guard let stripeId = appointment.stripeCustomerId, !stripeId.isEmpty,
               let price = appointment.servicePrice, price > 0 else {
             return false
         }
         return true
+    }
+
+    private var noShowFeeCents: Int {
+        guard let price = appointment.servicePrice else { return 0 }
+        return BookingDisplay.noShowPenaltyCents(servicePriceDollars: price)
+    }
+
+    private var noShowFeeLabel: String {
+        BookingDisplay.formattedCents(noShowFeeCents)
+    }
+
+    private var chargeNoShowButtonTitle: String {
+        "Charge \(noShowFeeLabel) & mark no-show"
     }
 
     private var isBusy: Bool { statusAction != nil }
@@ -47,6 +69,12 @@ struct AppointmentDetailSheet: View {
                     clientCard
                     timeCard
                     serviceCard
+                    if !isReadOnly {
+                        AppointmentPaymentCard(
+                            appointment: appointment,
+                            onPaymentChanged: onPaymentMutated
+                        )
+                    }
                     if let notes = appointment.bookingNotes?.trimmingCharacters(in: .whitespacesAndNewlines),
                        !notes.isEmpty {
                         notesCard(notes)
@@ -58,7 +86,9 @@ struct AppointmentDetailSheet: View {
             }
             .background(AdminTheme.cream)
             .safeAreaInset(edge: .bottom) {
-                actionFooter
+                if !isReadOnly {
+                    actionFooter
+                }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -107,7 +137,7 @@ struct AppointmentDetailSheet: View {
             titleVisibility: .visible
         ) {
             if canChargeNoShow {
-                Button("Charge 100% & mark no-show", role: .destructive) {
+                Button(chargeNoShowButtonTitle, role: .destructive) {
                     Task { await performStatusChange(.noShowCharged) }
                 }
             }
@@ -117,7 +147,7 @@ struct AppointmentDetailSheet: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             if canChargeNoShow {
-                Text("This always adds 1 to their no-show count. Charge 100% of the service price, or choose no charge to also flag them on the calendar and profile.")
+                Text("This always adds 1 to their no-show count. Charge 100% (\(noShowFeeLabel)) of the service price on the card saved at checkout, or choose no charge to also flag them on the calendar and profile.")
             } else {
                 Text("No vaulted card or service price on file. Marking no-show will flag them and increase their no-show count. A fee cannot be charged automatically.")
             }
@@ -133,6 +163,17 @@ struct AppointmentDetailSheet: View {
             Button("Keep appointment", role: .cancel) {}
         } message: {
             Text("The client will be notified and the booking will be removed from your calendar.")
+        }
+        .alert(
+            "No-show fee charged",
+            isPresented: $showStatusSuccessAlert
+        ) {
+            Button("OK") {
+                onMutated()
+                onDismiss()
+            }
+        } message: {
+            Text(statusSuccessMessage ?? "The no-show fee was charged successfully.")
         }
     }
 
@@ -370,6 +411,8 @@ struct AppointmentDetailSheet: View {
     }
 
     private func performStatusChange(_ action: StatusAction) async {
+        guard !isReadOnly else { return }
+
         statusAction = action
         statusError = nil
         defer { statusAction = nil }
@@ -399,11 +442,55 @@ struct AppointmentDetailSheet: View {
                 onMutated()
                 return
             }
+            if action == .noShowCharged,
+               let cents = response.noShowCharge?.amountCents,
+               cents > 0 {
+                let amount = BookingDisplay.formattedCents(
+                    cents,
+                    currency: response.noShowCharge?.currency
+                )
+                statusSuccessMessage = "Charged \(amount) to the card on file."
+                showStatusSuccessAlert = true
+                return
+            }
             onMutated()
             onDismiss()
         } catch {
-            statusError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            statusError = Self.friendlyStatusError(error)
         }
+    }
+
+    private static func friendlyStatusError(_ error: Error) -> String {
+        if let apiError = error as? AdminAPIError,
+           case .server(_, let body) = apiError,
+           let body,
+           let parsed = parseServerErrorBody(body) {
+            let code = parsed.error ?? ""
+            let message = parsed.message ?? code
+            switch code {
+            case "card_declined",
+                 "authentication_required",
+                 "no_payment_method",
+                 "no_vaulted_card":
+                return "Card charge failed: \(message.isEmpty ? code : message)"
+            default:
+                if !message.isEmpty {
+                    return message
+                }
+            }
+        }
+        return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+
+    private static func parseServerErrorBody(_ body: String) -> (error: String?, message: String?)? {
+        guard let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        let error = json["error"] as? String
+        let message = json["message"] as? String
+        if error == nil && message == nil { return nil }
+        return (error, message)
     }
 
     private func errorBanner(_ message: String) -> some View {

@@ -27,9 +27,12 @@ separate “admin API key” in the iOS app.
 What must be true on the **Next.js / Vercel** side:
 
 1. Route `app/api/admin/appointments/route.ts` is deployed.
-2. It verifies the Clerk JWT (same Clerk instance as the app’s
-   `pk_test_…` / `pk_live_…` key).
-3. Your signed-in user has admin access (e.g. `publicMetadata.role === "admin"`).
+2. It verifies the Clerk JWT (same **Production** Clerk instance as the
+   app’s `pk_live_…` key in `SadieMarieApp.swift`).
+3. Your signed-in user is on the admin email allowlist (same as web).
 
-If bookings fail with **401**, sign in again or fix Clerk/admin metadata.
+If bookings fail with **401** / “session has expired”, the app’s publishable
+key almost certainly does not match Vercel’s Production `CLERK_SECRET_KEY`
+(or you still have a cached session from an old Clerk instance — sign out
+and sign in again after updating the key).
 If they fail with **404**, the URL or route is wrong (not a missing API key).

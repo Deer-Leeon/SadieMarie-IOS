@@ -30,6 +30,8 @@ struct Appointment: Identifiable, Hashable, Sendable {
     let bookingNotes: String?
     /// True when the linked CRM client has an active no-show attention flag.
     let clientNoShowFlag: Bool
+    /// Latest appointment settlement or Terminal attempt.
+    let terminalPayment: AppointmentPaymentSummary?
 
     nonisolated init(
         id: String,
@@ -48,7 +50,8 @@ struct Appointment: Identifiable, Hashable, Sendable {
         serviceColor: String? = nil,
         stripeCustomerId: String? = nil,
         bookingNotes: String? = nil,
-        clientNoShowFlag: Bool = false
+        clientNoShowFlag: Bool = false,
+        terminalPayment: AppointmentPaymentSummary? = nil
     ) {
         self.id = id
         self.calUid = calUid
@@ -67,6 +70,7 @@ struct Appointment: Identifiable, Hashable, Sendable {
         self.stripeCustomerId = stripeCustomerId
         self.bookingNotes = bookingNotes
         self.clientNoShowFlag = clientNoShowFlag
+        self.terminalPayment = terminalPayment
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -87,6 +91,7 @@ struct Appointment: Identifiable, Hashable, Sendable {
         case stripeCustomerId
         case bookingNotes
         case clientNoShowFlag
+        case terminalPayment
     }
 }
 
@@ -110,7 +115,11 @@ extension Appointment: Decodable {
             serviceColor: try container.decodeIfPresent(String.self, forKey: .serviceColor),
             stripeCustomerId: try container.decodeIfPresent(String.self, forKey: .stripeCustomerId),
             bookingNotes: try container.decodeIfPresent(String.self, forKey: .bookingNotes),
-            clientNoShowFlag: try container.decodeIfPresent(Bool.self, forKey: .clientNoShowFlag) ?? false
+            clientNoShowFlag: try container.decodeIfPresent(Bool.self, forKey: .clientNoShowFlag) ?? false,
+            terminalPayment: try container.decodeIfPresent(
+                AppointmentPaymentSummary.self,
+                forKey: .terminalPayment
+            )
         )
     }
 }
@@ -135,6 +144,7 @@ extension Appointment: Encodable {
         try container.encodeIfPresent(stripeCustomerId, forKey: .stripeCustomerId)
         try container.encodeIfPresent(bookingNotes, forKey: .bookingNotes)
         try container.encode(clientNoShowFlag, forKey: .clientNoShowFlag)
+        try container.encodeIfPresent(terminalPayment, forKey: .terminalPayment)
     }
 }
 
@@ -177,7 +187,31 @@ extension Appointment {
             serviceColor: serviceColor,
             stripeCustomerId: stripeCustomerId,
             bookingNotes: bookingNotes,
-            clientNoShowFlag: flag
+            clientNoShowFlag: flag,
+            terminalPayment: terminalPayment
+        )
+    }
+
+    func withTerminalPayment(_ payment: AppointmentPaymentSummary?) -> Appointment {
+        Appointment(
+            id: id,
+            calUid: calUid,
+            clientFirstName: clientFirstName,
+            clientLastName: clientLastName,
+            bookingTime: bookingTime,
+            endTime: endTime,
+            serviceName: serviceName,
+            status: status,
+            clientPhone: clientPhone,
+            clientEmail: clientEmail,
+            servicePrice: servicePrice,
+            serviceDescription: serviceDescription,
+            serviceSlug: serviceSlug,
+            serviceColor: serviceColor,
+            stripeCustomerId: stripeCustomerId,
+            bookingNotes: bookingNotes,
+            clientNoShowFlag: clientNoShowFlag,
+            terminalPayment: payment
         )
     }
 

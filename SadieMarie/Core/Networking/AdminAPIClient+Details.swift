@@ -192,6 +192,108 @@ extension AdminAPIClient {
         )
         return response.client
     }
+
+    /// `PATCH /api/admin/clients/{id}` — grant a one-time fee free pass (sends SMS).
+    func grantClientFeeWaive(id: String, kind: GrantClientFeeWaivePayload.Kind) async throws -> Client {
+        let body = try GrantClientFeeWaivePayload(kind: kind).encodedJSON()
+        let response = try await fetch(
+            "clients/\(id)",
+            as: ClientMutationResponse.self,
+            method: .patch,
+            body: body,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        return response.client
+    }
+
+    // MARK: - Appointment payments
+
+    func startTerminalPayment(appointmentId: String) async throws -> PaymentOperationResult {
+        try await terminalPaymentRequest(appointmentId: appointmentId, suffix: nil, method: .post)
+    }
+
+    func fetchTerminalPayment(appointmentId: String) async throws -> PaymentOperationResult {
+        try await terminalPaymentRequest(appointmentId: appointmentId, suffix: nil, method: .get)
+    }
+
+    func retryTerminalPayment(appointmentId: String) async throws -> PaymentOperationResult {
+        try await terminalPaymentRequest(appointmentId: appointmentId, suffix: "retry", method: .post)
+    }
+
+    func cancelTerminalPayment(appointmentId: String) async throws -> PaymentOperationResult {
+        try await terminalPaymentRequest(appointmentId: appointmentId, suffix: "cancel", method: .post)
+    }
+
+    func settleAppointment(
+        appointmentId: String,
+        method: AppointmentSettlementMethod,
+        note: String?
+    ) async throws -> SettlementOperationResult {
+        let trimmedNote = note?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let payload = SettlementRequest(
+            method: method,
+            note: trimmedNote?.isEmpty == false ? trimmedNote : nil
+        )
+        return try await settlementRequest(
+            appointmentId: appointmentId,
+            suffix: nil,
+            body: payload.encodedJSON()
+        )
+    }
+
+    func undoAppointmentSettlement(appointmentId: String) async throws -> SettlementOperationResult {
+        try await settlementRequest(appointmentId: appointmentId, suffix: "undo", body: nil)
+    }
+
+    private func terminalPaymentRequest(
+        appointmentId: String,
+        suffix: String?,
+        method: HTTPMethod
+    ) async throws -> PaymentOperationResult {
+        let endpoint = paymentEndpoint(
+            appointmentId: appointmentId,
+            resource: "terminal-payment",
+            suffix: suffix
+        )
+        let raw = try await fetchDataWithStatus(endpoint, method: method)
+        do {
+            let response = try Self.decodeJSON(TerminalPaymentAPIResponse.self, from: raw.data)
+            return PaymentOperationResult(response: response, statusCode: raw.statusCode)
+        } catch let error as DecodingError {
+            throw AdminAPIError.decoding(error)
+        }
+    }
+
+    private func settlementRequest(
+        appointmentId: String,
+        suffix: String?,
+        body: Data?
+    ) async throws -> SettlementOperationResult {
+        let endpoint = paymentEndpoint(
+            appointmentId: appointmentId,
+            resource: "settlement",
+            suffix: suffix
+        )
+        let raw = try await fetchDataWithStatus(endpoint, method: .post, body: body)
+        do {
+            let response = try Self.decodeJSON(SettlementAPIResponse.self, from: raw.data)
+            return SettlementOperationResult(response: response, statusCode: raw.statusCode)
+        } catch let error as DecodingError {
+            throw AdminAPIError.decoding(error)
+        }
+    }
+
+    private func paymentEndpoint(
+        appointmentId: String,
+        resource: String,
+        suffix: String?
+    ) -> String {
+        let encodedId = appointmentId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+            ?? appointmentId
+        return ["appointments", encodedId, resource, suffix]
+            .compactMap { $0 }
+            .joined(separator: "/")
+    }
 }
 
 struct ClientPhotoUploadResponse: Decodable, Sendable {

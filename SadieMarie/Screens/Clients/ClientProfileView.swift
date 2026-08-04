@@ -18,6 +18,7 @@ struct ClientProfileView: View {
     @State private var historyMutated = false
     @State private var showManualBooking = false
     @State private var showClearNoShowFlagConfirm = false
+    @State private var grantWaiveKind: GrantClientFeeWaivePayload.Kind?
 
     init(
         entry: ClientProfileEntry,
@@ -116,6 +117,11 @@ struct ClientProfileView: View {
                         historyMutated = true
                         selectedAppointment = nil
                         Task { await viewModel.reloadDossier() }
+                    },
+                    onPaymentMutated: { payment in
+                        historyMutated = true
+                        selectedAppointment = appointment.withTerminalPayment(payment)
+                        Task { await viewModel.reloadDossier() }
                     }
                 )
             }
@@ -136,6 +142,7 @@ struct ClientProfileView: View {
                 identityCard
                 bookAppointmentButton
                 crmBar
+                feeWaivePassesBar
                 if viewModel.showsNoShowFlag {
                     noShowFlagBanner
                 }
@@ -155,9 +162,7 @@ struct ClientProfileView: View {
                     prefilledClient: client,
                     onClose: { showManualBooking = false },
                     onSuccess: {
-                        showManualBooking = false
                         historyMutated = true
-                        onMutated()
                         Task { await viewModel.reloadDossier() }
                     }
                 )
@@ -228,43 +233,65 @@ struct ClientProfileView: View {
 
     private var crmBar: some View {
         AdminDetailCard {
-            HStack(spacing: 0) {
-                crmColumn(
-                    title: "Lifetime spend",
-                    value: BookingDisplay.formatLifetimeSpend(viewModel.crmStats.lifetimeValue)
-                )
+            VStack(spacing: 12) {
+                HStack(spacing: 0) {
+                    crmColumn(
+                        title: "Lifetime spend",
+                        value: BookingDisplay.formatLifetimeSpend(viewModel.crmStats.lifetimeValue)
+                    )
+                    Divider()
+                        .frame(height: 44)
+                        .overlay(AdminTheme.stone200)
+                    crmColumn(
+                        title: "Bookings",
+                        value: "\(viewModel.crmStats.totalBookings)"
+                    )
+                    Divider()
+                        .frame(height: 44)
+                        .overlay(AdminTheme.stone200)
+                    crmColumn(
+                        title: "Card vault",
+                        value: viewModel.crmStats.hasVaultedCard ? "On file" : "None",
+                        valueColor: viewModel.crmStats.hasVaultedCard
+                            ? AdminTheme.confirmedText
+                            : AdminTheme.stone500
+                    )
+                }
                 Divider()
-                    .frame(height: 44)
                     .overlay(AdminTheme.stone200)
-                crmColumn(
-                    title: "Bookings",
-                    value: "\(viewModel.crmStats.totalBookings)"
-                )
-                Divider()
-                    .frame(height: 44)
-                    .overlay(AdminTheme.stone200)
-                crmColumn(
-                    title: "No-shows",
-                    value: "\(viewModel.crmStats.noShowCount)",
-                    valueColor: viewModel.crmStats.noShowCount > 0
-                        ? AdminTheme.rose600
-                        : AdminTheme.stone900
-                )
-                Divider()
-                    .frame(height: 44)
-                    .overlay(AdminTheme.stone200)
-                crmColumn(
-                    title: "Card vault",
-                    value: viewModel.crmStats.hasVaultedCard ? "On file" : "None",
-                    valueColor: viewModel.crmStats.hasVaultedCard
-                        ? AdminTheme.confirmedText
-                        : AdminTheme.stone500
-                )
+                HStack(alignment: .top, spacing: 0) {
+                    crmBreakdownColumn(
+                        title: "No-shows",
+                        total: viewModel.crmStats.noShowCount,
+                        emphasize: viewModel.crmStats.noShowCount > 0,
+                        rows: [
+                            ("Admin-marked", viewModel.crmStats.noShowAdminCount),
+                            ("Under-2h cancels", viewModel.crmStats.noShowAutoCancelCount),
+                            ("Under-2h reschedules", viewModel.crmStats.noShowAutoRescheduleCount),
+                        ]
+                    )
+                    Divider()
+                        .frame(minHeight: 72)
+                        .overlay(AdminTheme.stone200)
+                    crmBreakdownColumn(
+                        title: "Late-Change",
+                        total: viewModel.crmStats.lateChangeCount,
+                        emphasize: viewModel.crmStats.lateChangeCount > 0,
+                        rows: [
+                            ("Late cancel", viewModel.crmStats.lateChangeCancelCount),
+                            ("Late reschedule", viewModel.crmStats.lateChangeRescheduleCount),
+                        ]
+                    )
+                }
             }
         }
     }
 
-    private func crmColumn(title: String, value: String, valueColor: Color = AdminTheme.stone900) -> some View {
+    private func crmColumn(
+        title: String,
+        value: String,
+        valueColor: Color = AdminTheme.stone900
+    ) -> some View {
         VStack(spacing: 6) {
             Text(title.uppercased())
                 .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
@@ -278,6 +305,176 @@ struct ClientProfileView: View {
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title), \(value)")
+    }
+
+    /// Totals plus always-visible sub-counts (web `CrmStatBreakdownTile` parity).
+    private func crmBreakdownColumn(
+        title: String,
+        total: Int,
+        emphasize: Bool,
+        rows: [(String, Int)]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(spacing: 6) {
+                Text(title.uppercased())
+                    .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
+                    .tracking(1.6)
+                    .foregroundStyle(AdminTheme.stone500)
+                    .frame(maxWidth: .infinity)
+
+                Text("\(total)")
+                    .font(AdminTheme.fontAdminSerif(size: 17))
+                    .foregroundStyle(emphasize ? AdminTheme.rose600 : AdminTheme.stone900)
+                    .frame(maxWidth: .infinity)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(row.0)
+                            .font(AdminTheme.fontAdminSans(size: 11))
+                            .foregroundStyle(AdminTheme.stone500)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("\(row.1)")
+                            .font(AdminTheme.fontAdminSans(size: 11, weight: .medium))
+                            .foregroundStyle(AdminTheme.stone700)
+                            .monospacedDigit()
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .padding(.horizontal, 4)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title), \(total). \(rows.map { "\($0.0) \($0.1)" }.joined(separator: ". "))")
+    }
+
+    private var feeWaivePassesBar: some View {
+        VStack(spacing: 10) {
+            feeWaivePassCard(
+                title: "No-show fee",
+                freeNext: viewModel.crmStats.noShowWaiveNext,
+                kind: .noShow
+            )
+            feeWaivePassCard(
+                title: "Late-Change fee",
+                freeNext: viewModel.crmStats.lateChangeWaiveNext,
+                kind: .lateChange
+            )
+            if let error = viewModel.feeWaiveError {
+                Text(error)
+                    .font(AdminTheme.fontAdminSans(size: 12))
+                    .foregroundStyle(AdminTheme.rose600)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .confirmationDialog(
+            grantConfirmTitle,
+            isPresented: Binding(
+                get: { grantWaiveKind != nil },
+                set: { if !$0 { grantWaiveKind = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Yes, grant free pass") {
+                guard let kind = grantWaiveKind else { return }
+                Task {
+                    let ok = await viewModel.grantFeeWaive(kind: kind)
+                    if ok, let client = viewModel.client {
+                        onClientUpdated?(client)
+                    }
+                    grantWaiveKind = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                grantWaiveKind = nil
+            }
+        } message: {
+            Text(grantConfirmMessage)
+        }
+    }
+
+    private var grantConfirmTitle: String {
+        switch grantWaiveKind {
+        case .lateChange:
+            return "Grant a one-time Late-Change free pass?"
+        case .noShow, .none:
+            return "Grant a one-time no-show free pass?"
+        }
+    }
+
+    private var grantConfirmMessage: String {
+        switch grantWaiveKind {
+        case .lateChange:
+            return "Their next late cancel or reschedule will not be charged. An SMS will tell them. After that event, they will be charged again unless you grant another pass."
+        case .noShow, .none:
+            return "Their next no-show will not be charged. An SMS will tell them. After that event, they will be charged again unless you grant another pass."
+        }
+    }
+
+    private func feeWaivePassCard(
+        title: String,
+        freeNext: Bool,
+        kind: GrantClientFeeWaivePayload.Kind
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased())
+                .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
+                .tracking(1.6)
+                .foregroundStyle(AdminTheme.stone500)
+
+            Text(freeNext ? "Next free" : "Will be charged next")
+                .font(AdminTheme.fontAdminSans(size: 14, weight: .semibold))
+                .foregroundStyle(AdminTheme.stone900)
+
+            Text(
+                freeNext
+                    ? "One-time free pass is active. The next event skips the fee, then they are charged."
+                    : "No free pass. The next event will charge the fee unless you grant another pass."
+            )
+            .font(AdminTheme.fontAdminSans(size: 12))
+            .foregroundStyle(AdminTheme.stone700)
+            .fixedSize(horizontal: false, vertical: true)
+
+            if !freeNext {
+                Button {
+                    grantWaiveKind = kind
+                } label: {
+                    Text(viewModel.isGrantingFeeWaive ? "Granting…" : "Grant free pass")
+                        .font(AdminTheme.fontAdminSans(size: 11, weight: .semibold))
+                        .tracking(0.8)
+                        .foregroundStyle(AdminTheme.stone900)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(AdminTheme.cardFill)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(AdminTheme.pendingBorder, lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .buttonStyle(.plain)
+                .disabled(viewModel.isGrantingFeeWaive)
+                .padding(.top, 2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(
+            freeNext
+                ? AdminTheme.confirmedBackground.opacity(0.55)
+                : AdminTheme.awaitingPaymentBackground.opacity(0.85)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(
+                    freeNext ? AdminTheme.confirmedBorder : AdminTheme.pendingBorder,
+                    lineWidth: 1
+                )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
     private var noShowFlagBanner: some View {

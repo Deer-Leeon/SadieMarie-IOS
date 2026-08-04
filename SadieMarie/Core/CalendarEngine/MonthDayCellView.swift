@@ -4,6 +4,7 @@ import SwiftUI
 struct MonthDayCellView: View {
     let date: Date
     let appointments: [Appointment]
+    let timeBlocks: [TimeBlock]
     let isToday: Bool
     var onDayClick: ((Date) -> Void)?
 
@@ -13,6 +14,16 @@ struct MonthDayCellView: View {
             let right = rhs.bookingTime ?? ""
             return left < right
         }
+    }
+
+    private var sortedBlocks: [TimeBlock] {
+        timeBlocks.sorted { $0.startTime < $1.startTime }
+    }
+
+    private var showsBlockFirst: Bool {
+        guard let block = sortedBlocks.first else { return false }
+        guard let appointment = sortedAppointments.first else { return true }
+        return block.startTime < (appointment.bookingTime ?? "")
     }
 
     var body: some View {
@@ -34,11 +45,17 @@ struct MonthDayCellView: View {
         VStack(alignment: .leading, spacing: 3) {
             dayNumber
 
-            if let first = sortedAppointments.first {
+            if showsBlockFirst, let firstBlock = sortedBlocks.first {
+                MonthTimeBlockChip(block: firstBlock)
+                    .allowsHitTesting(false)
+            } else if let first = sortedAppointments.first {
                 MonthAppointmentChip(appointment: first)
                     .allowsHitTesting(false)
+            }
 
-                let remaining = sortedAppointments.count - 1
+            let totalItems = sortedAppointments.count + sortedBlocks.count
+            if totalItems > 0 {
+                let remaining = totalItems - 1
                 if remaining > 0 {
                     Text("+\(remaining) more")
                         .font(AdminTheme.fontAdminSans(size: 9, weight: .medium))

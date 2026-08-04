@@ -134,6 +134,7 @@ struct BookingsTimeGridView: View {
         hourHeight: CGFloat
     ) -> some View {
         let items = store.appointments(on: day)
+        let blocks = store.timeBlocks(on: day)
 
         return ZStack(alignment: .topLeading) {
             if showLeadingDivider {
@@ -143,12 +144,40 @@ struct BookingsTimeGridView: View {
                     .frame(maxHeight: .infinity, alignment: .leading)
             }
 
+            ForEach(blocks) { block in
+                positionedTimeBlock(block, hourHeight: hourHeight)
+            }
+
             ForEach(items) { appointment in
                 positionedCard(appointment, hourHeight: hourHeight)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .clipped()
+    }
+
+    @ViewBuilder
+    private func positionedTimeBlock(_ block: TimeBlock, hourHeight: CGFloat) -> some View {
+        if let start = BookingDisplay.iso8601Date(from: block.startTime),
+           let end = BookingDisplay.iso8601Date(from: block.endTime) {
+            let y = BookingDisplay.CalendarFormatting.yOffset(
+                for: start,
+                hourHeight: hourHeight,
+                calendar: calendar
+            )
+            let height = BookingDisplay.CalendarFormatting.blockHeight(
+                start: start,
+                end: end,
+                hourHeight: hourHeight
+            )
+
+            TimeGridTimeBlockSummary(block: block, isWeekStyle: isWeekStyle)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .frame(height: max(height, isWeekStyle ? 16 : 20), alignment: .top)
+                .padding(.horizontal, isWeekStyle ? 1 : 2)
+                .padding(.top, y)
+                .allowsHitTesting(false)
+        }
     }
 
     @ViewBuilder

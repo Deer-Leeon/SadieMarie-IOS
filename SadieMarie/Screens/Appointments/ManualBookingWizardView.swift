@@ -34,11 +34,17 @@ struct ManualBookingWizardView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            stepProgressBar
-            bodyContent
-            footer
+        Group {
+            if viewModel.didCompleteBooking {
+                successContent
+            } else {
+                VStack(spacing: 0) {
+                    header
+                    stepProgressBar
+                    bodyContent
+                    footer
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AdminTheme.cream.ignoresSafeArea())
@@ -46,6 +52,67 @@ struct ManualBookingWizardView: View {
         .task {
             await viewModel.loadServicesIfNeeded()
         }
+    }
+
+    private var successContent: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            ZStack {
+                Circle()
+                    .fill(Color.green.opacity(0.12))
+                    .frame(width: 96, height: 96)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 38, weight: .semibold))
+                    .foregroundStyle(Color.green)
+            }
+
+            VStack(spacing: 8) {
+                Text("Appointment booked")
+                    .font(AdminTheme.fontAdminSerif(size: 28))
+                    .foregroundStyle(AdminTheme.stone900)
+                Text("The appointment is in Cal.com and the studio calendar.")
+                    .font(AdminTheme.fontAdminSans(size: 14))
+                    .foregroundStyle(AdminTheme.stone700)
+                    .multilineTextAlignment(.center)
+            }
+
+            Spacer()
+
+            VStack(spacing: 10) {
+                Button {
+                    viewModel.resetForNextBooking()
+                    expandedGroupIDs = []
+                } label: {
+                    Text("Book another")
+                        .font(AdminTheme.fontAdminSans(size: 13, weight: .semibold))
+                        .tracking(1.2)
+                        .textCase(.uppercase)
+                        .foregroundStyle(AdminTheme.cream)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 15)
+                        .background(AdminTheme.stone900)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                Button("Done", action: onClose)
+                    .font(AdminTheme.fontAdminSans(size: 13, weight: .semibold))
+                    .tracking(1.2)
+                    .textCase(.uppercase)
+                    .foregroundStyle(AdminTheme.stone700)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 15)
+                    .background(AdminTheme.cardFill)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(AdminTheme.stone200, lineWidth: 1)
+                    )
+            }
+        }
+        .padding(.horizontal, Layout.contentPadding)
+        .padding(.vertical, 24)
     }
 
     private var isScheduleStep: Bool {

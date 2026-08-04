@@ -38,7 +38,24 @@ struct BookingCardView: View {
             timeColumn
             nameServiceColumn
             Spacer(minLength: 0)
-            BookingStatusPill(status: appointment.status)
+            VStack(alignment: .trailing, spacing: 5) {
+                BookingStatusPill(status: appointment.status)
+                if let label = BookingDisplay.settlementLabel(for: appointment.terminalPayment) {
+                    Label(
+                        label,
+                        systemImage: BookingDisplay.settlementSystemImage(
+                            for: appointment.terminalPayment
+                        )
+                    )
+                    .font(AdminTheme.fontAdminSans(size: 9, weight: .semibold))
+                    .foregroundStyle(textColors.primary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(AdminTheme.cardFill.opacity(usesServiceBackground ? 0.72 : 1))
+                    .clipShape(Capsule())
+                    .accessibilityLabel("\(label) settlement")
+                }
+            }
         }
         .padding(.horizontal, AdminTheme.Spacing.rowHorizontal)
         .padding(.vertical, AdminTheme.Spacing.rowVertical)

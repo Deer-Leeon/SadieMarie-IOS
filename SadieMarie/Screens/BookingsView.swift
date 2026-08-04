@@ -130,13 +130,21 @@ struct BookingsView: View {
                     onMutated: {
                         selectedAppointment = nil
                         Task { await viewModel.load() }
+                    },
+                    onPaymentMutated: { payment in
+                        viewModel.applyPayment(
+                            appointmentId: appointment.id,
+                            payment: payment
+                        )
+                        selectedAppointment = appointment.withTerminalPayment(payment)
+                        Task { await viewModel.load() }
                     }
                 )
             }
             .overlay {
                 if let focus = dayFocus {
                     SingleDayModal(
-                        appointments: viewModel.visibleAppointments,
+                        viewModel: viewModel,
                         initialDate: focus.date,
                         onClose: { dayFocus = nil },
                         onAppointmentClick: { selectedAppointment = $0 }
@@ -151,7 +159,6 @@ struct BookingsView: View {
                     bookingDate: focus.date,
                     onClose: { manualBookingFocus = nil },
                     onSuccess: {
-                        manualBookingFocus = nil
                         Task { await viewModel.load() }
                     }
                 )
@@ -177,6 +184,7 @@ struct BookingsView: View {
                 mode: mode,
                 gridAppointments: viewModel.calendarAppointments,
                 modalAppointments: viewModel.visibleAppointments,
+                timeBlocks: viewModel.timeBlocks,
                 onDayClick: { dayFocus = DayFocus(date: $0) },
                 onSelectAppointment: { selectedAppointment = $0 }
             )

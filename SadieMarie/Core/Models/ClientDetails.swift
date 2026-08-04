@@ -11,7 +11,15 @@ struct ClientHistoryCrmStats: Hashable, Sendable {
     let lastBookedAt: String?
     let strikeCount: Int
     let noShowCount: Int
+    let noShowAdminCount: Int
+    let noShowAutoCancelCount: Int
+    let noShowAutoRescheduleCount: Int
+    let lateChangeCount: Int
+    let lateChangeCancelCount: Int
+    let lateChangeRescheduleCount: Int
     let noShowFlag: Bool
+    let noShowWaiveNext: Bool
+    let lateChangeWaiveNext: Bool
 
     nonisolated init(
         totalBookings: Int = 0,
@@ -21,7 +29,15 @@ struct ClientHistoryCrmStats: Hashable, Sendable {
         lastBookedAt: String? = nil,
         strikeCount: Int = 0,
         noShowCount: Int = 0,
-        noShowFlag: Bool = false
+        noShowAdminCount: Int = 0,
+        noShowAutoCancelCount: Int = 0,
+        noShowAutoRescheduleCount: Int = 0,
+        lateChangeCount: Int = 0,
+        lateChangeCancelCount: Int = 0,
+        lateChangeRescheduleCount: Int = 0,
+        noShowFlag: Bool = false,
+        noShowWaiveNext: Bool = true,
+        lateChangeWaiveNext: Bool = true
     ) {
         self.totalBookings = totalBookings
         self.lifetimeValue = lifetimeValue
@@ -30,7 +46,23 @@ struct ClientHistoryCrmStats: Hashable, Sendable {
         self.lastBookedAt = lastBookedAt
         self.strikeCount = strikeCount
         self.noShowCount = noShowCount > 0 ? noShowCount : strikeCount
+        self.noShowAdminCount = noShowAdminCount
+        self.noShowAutoCancelCount = noShowAutoCancelCount
+        self.noShowAutoRescheduleCount = noShowAutoRescheduleCount
+        self.lateChangeCount = lateChangeCount
+        self.lateChangeCancelCount = lateChangeCancelCount
+        self.lateChangeRescheduleCount = lateChangeRescheduleCount
         self.noShowFlag = noShowFlag
+        self.noShowWaiveNext = noShowWaiveNext
+        self.lateChangeWaiveNext = lateChangeWaiveNext
+    }
+
+    var noShowBreakdownHint: String {
+        "Admin-marked: \(noShowAdminCount). Under-2h cancels: \(noShowAutoCancelCount). Under-2h reschedules: \(noShowAutoRescheduleCount)."
+    }
+
+    var lateChangeBreakdownHint: String {
+        "Late cancel: \(lateChangeCancelCount). Late reschedule: \(lateChangeRescheduleCount)."
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -41,7 +73,15 @@ struct ClientHistoryCrmStats: Hashable, Sendable {
         case lastBookedAt
         case strikeCount
         case noShowCount
+        case noShowAdminCount
+        case noShowAutoCancelCount
+        case noShowAutoRescheduleCount
+        case lateChangeCount
+        case lateChangeCancelCount
+        case lateChangeRescheduleCount
         case noShowFlag
+        case noShowWaiveNext
+        case lateChangeWaiveNext
     }
 }
 
@@ -58,7 +98,15 @@ extension ClientHistoryCrmStats: Decodable {
             lastBookedAt: try container.decodeIfPresent(String.self, forKey: .lastBookedAt),
             strikeCount: decodedStrike,
             noShowCount: decodedNoShows,
-            noShowFlag: try container.decodeIfPresent(Bool.self, forKey: .noShowFlag) ?? false
+            noShowAdminCount: try container.decodeIfPresent(Int.self, forKey: .noShowAdminCount) ?? 0,
+            noShowAutoCancelCount: try container.decodeIfPresent(Int.self, forKey: .noShowAutoCancelCount) ?? 0,
+            noShowAutoRescheduleCount: try container.decodeIfPresent(Int.self, forKey: .noShowAutoRescheduleCount) ?? 0,
+            lateChangeCount: try container.decodeIfPresent(Int.self, forKey: .lateChangeCount) ?? 0,
+            lateChangeCancelCount: try container.decodeIfPresent(Int.self, forKey: .lateChangeCancelCount) ?? 0,
+            lateChangeRescheduleCount: try container.decodeIfPresent(Int.self, forKey: .lateChangeRescheduleCount) ?? 0,
+            noShowFlag: try container.decodeIfPresent(Bool.self, forKey: .noShowFlag) ?? false,
+            noShowWaiveNext: try container.decodeIfPresent(Bool.self, forKey: .noShowWaiveNext) ?? true,
+            lateChangeWaiveNext: try container.decodeIfPresent(Bool.self, forKey: .lateChangeWaiveNext) ?? true
         )
     }
 }
@@ -355,6 +403,35 @@ struct ClearClientNoShowFlagPayload: Encodable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case noShowFlag
+    }
+}
+
+/// `PATCH /api/admin/clients/{id}` — grant a one-time fee free pass.
+struct GrantClientFeeWaivePayload: Encodable, Sendable {
+    enum Kind {
+        case noShow
+        case lateChange
+    }
+
+    let kind: Kind
+
+    nonisolated func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch kind {
+        case .noShow:
+            try container.encode(true, forKey: .noShowWaiveNext)
+        case .lateChange:
+            try container.encode(true, forKey: .lateChangeWaiveNext)
+        }
+    }
+
+    nonisolated func encodedJSON() throws -> Data {
+        try AdminRequestEncoder.encode(self)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case noShowWaiveNext
+        case lateChangeWaiveNext
     }
 }
 

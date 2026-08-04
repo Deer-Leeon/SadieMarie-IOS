@@ -126,7 +126,21 @@ enum StudioTime {
             return nil
         }
         let end = start.addingTimeInterval(TimeInterval(durationMins * 60))
-        return iso8601.string(from: end)
+        return iso8601UTC(from: end)
+    }
+
+    /// UTC ISO 8601 for admin API payloads.
+    static func iso8601UTC(from date: Date) -> String {
+        iso8601.string(from: date)
+    }
+
+    /// Studio-local date at a wall-clock hour on the given day.
+    static func date(on day: Date, hour: Int, minute: Int = 0) -> Date? {
+        var components = calendar.dateComponents([.year, .month, .day], from: day)
+        components.hour = hour
+        components.minute = minute
+        components.second = 0
+        return calendar.date(from: components)
     }
 }
 

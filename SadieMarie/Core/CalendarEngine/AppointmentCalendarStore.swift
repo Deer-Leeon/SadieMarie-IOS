@@ -20,25 +20,36 @@ final class AppointmentCalendarStore {
   }
 
   private(set) var appointments: [Appointment] = []
+  private(set) var timeBlocks: [TimeBlock] = []
   private(set) var revision: UInt = 0
 
   private let calendar: Calendar
   private var index: [DayKey: [Appointment]] = [:]
+  private var blockIndex: [DayKey: [TimeBlock]] = [:]
 
   init(calendar: Calendar = .current) {
     self.calendar = calendar
   }
 
-  func replace(appointments: [Appointment], force: Bool = false) {
-    let nextIDs = appointments.map(\.id)
-    if !force, nextIDs == self.appointments.map(\.id) { return }
+  func replace(
+    appointments: [Appointment],
+    timeBlocks: [TimeBlock] = [],
+    force: Bool = false
+  ) {
+    if !force, appointments == self.appointments, timeBlocks == self.timeBlocks { return }
     self.appointments = appointments
+    self.timeBlocks = timeBlocks
     index = Self.buildIndex(appointments: appointments, calendar: calendar)
+    blockIndex = Self.buildBlockIndex(timeBlocks: timeBlocks, calendar: calendar)
     revision &+= 1
   }
 
   func appointments(on day: Date) -> [Appointment] {
     index[DayKey(date: day, calendar: calendar)] ?? []
+  }
+
+  func timeBlocks(on day: Date) -> [TimeBlock] {
+    blockIndex[DayKey(date: day, calendar: calendar)] ?? []
   }
 
   private static func buildIndex(
@@ -62,6 +73,24 @@ final class AppointmentCalendarStore {
       buckets[key]?.sort { ($0.bookingTime ?? "") < ($1.bookingTime ?? "") }
     }
 
+    return buckets
+  }
+
+  private static func buildBlockIndex(
+    timeBlocks: [TimeBlock],
+    calendar: Calendar
+  ) -> [DayKey: [TimeBlock]] {
+    var buckets: [DayKey: [TimeBlock]] = [:]
+    buckets.reserveCapacity(min(timeBlocks.count, 366))
+
+    for block in timeBlocks {
+      guard let instant = BookingDisplay.iso8601Date(from: block.startTime) else { continue }
+      buckets[DayKey(date: instant, calendar: calendar), default: []].append(block)
+    }
+
+    for key in buckets.keys {
+      buckets[key]?.sort { $0.startTime < $1.startTime }
+    }
     return buckets
   }
 }

@@ -59,13 +59,21 @@ struct CalendarDayBookingsContent: View {
 
     private func compactSummary(for appointment: Appointment) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(BookingDisplay.clientDisplayName(
-                first: appointment.clientFirstName,
-                last: appointment.clientLastName
-            ))
-            .font(AdminTheme.fontAdminSans(size: 11, weight: .medium))
-            .foregroundStyle(AdminTheme.stone900)
-            .lineLimit(1)
+            HStack(spacing: 3) {
+                Text(BookingDisplay.clientDisplayName(
+                    first: appointment.clientFirstName,
+                    last: appointment.clientLastName
+                ))
+                .font(AdminTheme.fontAdminSans(size: 11, weight: .medium))
+                .foregroundStyle(AdminTheme.stone900)
+                .lineLimit(1)
+
+                if let payment = appointment.terminalPayment, payment.isSettled {
+                    Image(systemName: BookingDisplay.settlementSystemImage(for: payment))
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(AdminTheme.stone700)
+                }
+            }
 
             Text(BookingDisplay.formattedTime(for: appointment))
                 .font(AdminTheme.fontAdminSerif(size: 11))

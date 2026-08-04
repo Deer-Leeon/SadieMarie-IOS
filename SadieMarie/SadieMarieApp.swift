@@ -11,13 +11,13 @@ import ClerkKit
 @main
 struct SadieMarieApp: App {
 
-    /// ⚠️ Replace `YOUR_KEY_HERE` with your real publishable key from
-    /// the Clerk Dashboard (Configure → API Keys → Publishable key).
-    /// Publishable keys are non-secret by design — they're meant to
-    /// ship with client apps — so hardcoding is acceptable. Use a
-    /// `pk_test_…` key for development/TestFlight and a `pk_live_…`
-    /// key for App Store builds.
-    private static let clerkPublishableKey = "pk_test_cmVsYXRlZC1saXphcmQtMTguY2xlcmsuYWNjb3VudHMuZGV2JA"
+    /// Publishable key from Clerk Dashboard → Production → API Keys.
+    /// Must match the same Production instance as `www.sadiemarie.co`
+    /// (`CLERK_SECRET_KEY` on Vercel). Publishable keys are non-secret
+    /// by design. The admin API base URL is production, so this app
+    /// always uses `pk_live_…` (including TestFlight) — a `pk_test_…`
+    /// session JWT will 401 against the live backend.
+    private static let clerkPublishableKey = "pk_live_Y2xlcmsuc2FkaWVtYXJpZS5jbyQ"
 
     // No default values on these — see `init()`. Default values would
     // run during the synthesized property-storage init *before* our

@@ -29,6 +29,7 @@ final class ManualBookingViewModel {
 
     private(set) var isLoadingServices = false
     private(set) var isCompleting = false
+    private(set) var didCompleteBooking = false
     private(set) var errorMessage: String?
 
     // MARK: - Slot picker state
@@ -416,6 +417,32 @@ final class ManualBookingViewModel {
         errorMessage = nil
     }
 
+    /// Starts a fresh booking while preserving a profile-locked client.
+    func resetForNextBooking() {
+        selectedService = nil
+        selectedDate = nil
+        selectedSlot = nil
+        monthSlots = [:]
+        availableDates = []
+        studioDayDates = []
+        monthError = nil
+        errorMessage = nil
+        didCompleteBooking = false
+        phoneTouched = false
+        emailTouched = false
+        step = .service
+
+        if lockedClient == nil {
+            selectedDirectoryClient = nil
+            clientFirstName = ""
+            clientLastName = ""
+            clientEmail = ""
+            clientPhone = ""
+            clientSearchQuery = ""
+            clientEntryMode = .existing
+        }
+    }
+
     func book(onSuccess: @escaping () -> Void) async {
         guard let service = selectedService, let slot = selectedSlot else { return }
 
@@ -447,6 +474,7 @@ final class ManualBookingViewModel {
                 clientEmail: optionalEmail,
                 clientPhoneDigits: parsedPhone.digits
             )
+            didCompleteBooking = true
             onSuccess()
         } catch let error as ManualBookingExecutionError {
             errorMessage = error.localizedDescription

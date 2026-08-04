@@ -1,41 +1,53 @@
 import SwiftUI
 
-/// Single-day timeline — same sizing and cards as the 3-day grid column.
+/// Single-day timeline — hour grid with tappable rows for blocking time.
 struct SingleDayTimelineView: View {
     let items: [PositionedAppointment]
+    let timeBlocks: [PositionedTimeBlock]
+    var removingBlockId: String?
+    var onHourTap: ((Int) -> Void)?
     var onAppointmentTap: ((Appointment) -> Void)?
+    var onBlockTap: ((TimeBlock) -> Void)?
 
     private let calendar = Calendar.current
-    private let timeColumnWidth: CGFloat = 44
+    private let timeColumnWidth: CGFloat = 56
+    private let hourRowMinHeight: CGFloat = 56
+
+    private var gridHeight: CGFloat {
+        CGFloat(BookingsCalendarLayout.hourCount) * hourRowMinHeight
+    }
+
+    private var isEmpty: Bool {
+        items.isEmpty && timeBlocks.isEmpty
+    }
 
     var body: some View {
-        GeometryReader { geometry in
-            let gridHeight = max(geometry.size.height, 120)
-            let hourHeight = gridHeight / CGFloat(BookingsCalendarLayout.hourCount)
-            let timelineWidth = max(geometry.size.width - timeColumnWidth, 0)
-
+        ScrollView(.vertical, showsIndicators: true) {
             HStack(alignment: .top, spacing: 0) {
-                timeLabelsColumn(hourHeight: hourHeight)
+                timeLabelsColumn
                     .frame(width: timeColumnWidth)
 
                 ZStack(alignment: .topLeading) {
-                    hourlyGridBackground(hourHeight: hourHeight)
-                    appointmentCards(
-                        hourHeight: hourHeight,
-                        columnWidth: timelineWidth
-                    )
+                    hourGridLines
+                    hourTapRows
+                    if isEmpty {
+                        emptyHint
+                    }
+                    timeBlockPills
+                        .zIndex(2)
+                    appointmentCards
+                        .zIndex(3)
                 }
-                .frame(width: timelineWidth, height: gridHeight)
-                .clipped()
+                .frame(maxWidth: .infinity)
+                .frame(height: gridHeight)
             }
-            .frame(width: geometry.size.width, height: gridHeight, alignment: .top)
+            .padding(.horizontal, 4)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Time axis
 
-    private func timeLabelsColumn(hourHeight: CGFloat) -> some View {
+    private var timeLabelsColumn: some View {
         VStack(spacing: 0) {
             ForEach(BookingsCalendarLayout.hourStart..<BookingsCalendarLayout.hourEnd, id: \.self) { hour in
                 Text(hourLabel(for: hour))
@@ -43,46 +55,90 @@ struct SingleDayTimelineView: View {
                     .foregroundStyle(AdminTheme.gray400)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                     .padding(.trailing, 4)
-                    .padding(.top, 2)
-                    .frame(height: hourHeight, alignment: .top)
+                    .padding(.top, 6)
+                    .frame(height: hourRowMinHeight, alignment: .top)
             }
         }
         .allowsHitTesting(false)
     }
 
-    private func hourlyGridBackground(hourHeight: CGFloat) -> some View {
+    private var hourGridLines: some View {
         VStack(spacing: 0) {
             ForEach(BookingsCalendarLayout.hourStart..<BookingsCalendarLayout.hourEnd, id: \.self) { _ in
                 Rectangle()
                     .fill(AdminTheme.stone200)
                     .frame(height: 0.5)
                     .frame(maxWidth: .infinity, alignment: .top)
-                    .frame(height: hourHeight, alignment: .top)
+                    .frame(height: hourRowMinHeight, alignment: .top)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .allowsHitTesting(false)
+    }
+
+    private var hourTapRows: some View {
+        VStack(spacing: 0) {
+            ForEach(BookingsCalendarLayout.hourStart..<BookingsCalendarLayout.hourEnd, id: \.self) { hour in
+                Button {
+                    onHourTap?(hour)
+                } label: {
+                    Color.clear
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .frame(height: hourRowMinHeight)
+                .accessibilityLabel("Block time starting at \(hourLabel(for: hour))")
+            }
+        }
+    }
+
+    private var emptyHint: some View {
+        Text("No bookings — tap an hour to block")
+            .font(AdminTheme.fontAdminSans(size: 11, weight: .medium))
+            .foregroundStyle(AdminTheme.stone500)
+            .textCase(.uppercase)
+            .tracking(1.2)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .allowsHitTesting(false)
+    }
+
+    // MARK: - Blocks
+
+    private var timeBlockPills: some View {
+        GeometryReader { geometry in
+            ForEach(timeBlocks) { positioned in
+                let top = geometry.size.height * CGFloat(positioned.topPct / 100)
+                let height = max(
+                    geometry.size.height * CGFloat(positioned.heightPct / 100),
+                    TimelineEngine.minPillHeight
+                )
+
+                TimeBlockPill(
+                    block: positioned.block,
+                    isRemoving: removingBlockId == positioned.block.id,
+                    onTap: onBlockTap.map { handler in { handler(positioned.block) } }
+                )
+                .frame(width: geometry.size.width - 8, height: height)
+                .offset(x: 4, y: top)
+            }
+        }
     }
 
     // MARK: - Appointments
 
-    private func appointmentCards(hourHeight: CGFloat, columnWidth: CGFloat) -> some View {
-        ZStack(alignment: .topLeading) {
+    private var appointmentCards: some View {
+        GeometryReader { geometry in
             ForEach(items) { positioned in
                 positionedCard(
                     positioned,
-                    hourHeight: hourHeight,
-                    columnWidth: columnWidth
+                    columnWidth: geometry.size.width
                 )
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
     private func positionedCard(
         _ positioned: PositionedAppointment,
-        hourHeight: CGFloat,
         columnWidth: CGFloat
     ) -> some View {
         let appointment = positioned.appointment
@@ -94,15 +150,12 @@ struct SingleDayTimelineView: View {
                 ?? calendar.date(byAdding: .hour, value: 1, to: start)
                 ?? start.addingTimeInterval(3600)
 
-            let topInset = BookingDisplay.CalendarFormatting.yOffset(
-                for: start,
-                hourHeight: hourHeight,
-                calendar: calendar
-            )
-            let cardHeight = BookingDisplay.CalendarFormatting.blockHeight(
-                start: start,
-                end: end,
-                hourHeight: hourHeight
+            let topInset = columnWidth > 0
+                ? CGFloat(positioned.topPct / 100) * (CGFloat(BookingsCalendarLayout.hourCount) * hourRowMinHeight)
+                : 0
+            let cardHeight = max(
+                CGFloat(positioned.heightPct / 100) * (CGFloat(BookingsCalendarLayout.hourCount) * hourRowMinHeight),
+                TimelineEngine.minPillHeight
             )
             let durationMinutes = BookingDisplay.CalendarFormatting.durationMinutes(
                 start: start,
@@ -117,7 +170,6 @@ struct SingleDayTimelineView: View {
                 appointment: appointment,
                 cardWidth: cardWidth,
                 cardHeight: cardHeight,
-                hourHeight: hourHeight,
                 durationMinutes: durationMinutes
             )
             .padding(.leading, leading)
@@ -130,7 +182,6 @@ struct SingleDayTimelineView: View {
         appointment: Appointment,
         cardWidth: CGFloat,
         cardHeight: CGFloat,
-        hourHeight: CGFloat,
         durationMinutes: Int
     ) -> some View {
         let shape = RoundedRectangle(cornerRadius: 4)
@@ -143,21 +194,21 @@ struct SingleDayTimelineView: View {
                     cardContent(
                         appointment: appointment,
                         cardHeight: cardHeight,
-                        hourHeight: hourHeight,
                         durationMinutes: durationMinutes
                     )
-                        .frame(width: cardWidth, height: cardHeight, alignment: .topLeading)
-                        .contentShape(shape)
+                    .frame(width: cardWidth, height: cardHeight, alignment: .topLeading)
+                    .contentShape(shape)
                 }
                 .buttonStyle(.plain)
+                .allowsHitTesting(true)
             } else {
                 cardContent(
                     appointment: appointment,
                     cardHeight: cardHeight,
-                    hourHeight: hourHeight,
                     durationMinutes: durationMinutes
                 )
-                    .frame(width: cardWidth, height: cardHeight, alignment: .topLeading)
+                .frame(width: cardWidth, height: cardHeight, alignment: .topLeading)
+                .allowsHitTesting(false)
             }
         }
         .padding(.horizontal, 2)
@@ -166,14 +217,13 @@ struct SingleDayTimelineView: View {
     private func cardContent(
         appointment: Appointment,
         cardHeight: CGFloat,
-        hourHeight: CGFloat,
         durationMinutes: Int
     ) -> some View {
         DayColumnBookingCard(
             appointment: appointment,
             isWeekStyle: false,
             blockHeight: cardHeight,
-            hourHeight: hourHeight,
+            hourHeight: hourRowMinHeight,
             durationMinutes: durationMinutes
         )
     }

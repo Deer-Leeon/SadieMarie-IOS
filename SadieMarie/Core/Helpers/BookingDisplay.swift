@@ -120,11 +120,18 @@ enum BookingDisplay {
         case AppointmentStatus.canceledByAdmin.rawValue,
              AppointmentStatus.canceledByClient.rawValue,
              AppointmentStatus.canceledByClientLate.rawValue,
-             AppointmentStatus.canceledBySystem.rawValue:
+             AppointmentStatus.canceledBySystem.rawValue,
+             "cancelled":
             return true
         default:
             return false
         }
+    }
+
+    /// Closed bookings that should not be rescheduled or status-patched again
+    /// (matches web `isAppointmentReadOnly`).
+    static func isReadOnly(_ apt: Appointment) -> Bool {
+        isNoShow(apt) || isCanceled(apt)
     }
 
     /// Confirmed rows with a valid CMS hex use full-row service coloring.
@@ -222,6 +229,57 @@ enum BookingDisplay {
         formatter.currencyCode = "USD"
         formatter.maximumFractionDigits = price.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 2
         return formatter.string(from: NSNumber(value: price))
+    }
+
+    /// Formats Stripe-style integer cents as USD (e.g. 18500 → "$185").
+    static func formattedCents(_ cents: Int, currency: String? = "USD") -> String {
+        let dollars = Double(cents) / 100.0
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = (currency?.isEmpty == false) ? currency!.uppercased() : "USD"
+        formatter.maximumFractionDigits = cents % 100 == 0 ? 0 : 2
+        return formatter.string(from: NSNumber(value: dollars)) ?? "$\(dollars)"
+    }
+
+    static func settlementLabel(for payment: AppointmentPaymentSummary?) -> String? {
+        guard let payment, payment.isSettled else { return nil }
+        switch payment.paymentKind {
+        case .servicePayment: return "Paid"
+        case .cash: return "Cash"
+        case .complimentary: return "Comped"
+        }
+    }
+
+    static func settlementSystemImage(for payment: AppointmentPaymentSummary?) -> String {
+        guard let payment else { return "checkmark.circle.fill" }
+        switch payment.paymentKind {
+        case .servicePayment: return "creditcard.fill"
+        case .cash: return "dollarsign.circle.fill"
+        case .complimentary: return "heart.circle.fill"
+        }
+    }
+
+    static func terminalFailureMessage(
+        payment: AppointmentPaymentSummary?,
+        fallback: String?
+    ) -> String {
+        payment?.failureMessage
+            ?? fallback
+            ?? "The payment could not be completed. Please try the reader again."
+    }
+
+    static func canRetryTerminalPayment(_ payment: AppointmentPaymentSummary?) -> Bool {
+        payment?.isRetryableTerminalPayment == true
+    }
+
+    static func canUndoSettlement(_ payment: AppointmentPaymentSummary?) -> Bool {
+        payment?.canUndo == true
+    }
+
+    /// 100% no-show fee in cents from a dollar service price (matches web `penaltyAmountCents`).
+    static func noShowPenaltyCents(servicePriceDollars: Double) -> Int {
+        guard servicePriceDollars > 0, servicePriceDollars.isFinite else { return 0 }
+        return Int((servicePriceDollars * 100).rounded())
     }
 
     static func appointmentDurationMinutes(_ apt: Appointment) -> Int? {

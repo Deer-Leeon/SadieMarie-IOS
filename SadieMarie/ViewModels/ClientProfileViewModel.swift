@@ -49,6 +49,24 @@ final class ClientProfileViewModel {
         self.entry = entry
         if case .directory(let seed) = entry {
             client = seed
+            crmStats = ClientHistoryCrmStats(
+                totalBookings: seed.stats.bookingCount,
+                lifetimeValue: seed.stats.ltv,
+                hasVaultedCard: seed.hasVaultedCard,
+                riskFlag: seed.riskFlag,
+                lastBookedAt: seed.lastBookingAt,
+                strikeCount: seed.strikeCount ?? 0,
+                noShowCount: seed.noShowCount ?? 0,
+                noShowAdminCount: seed.noShowAdminCount ?? 0,
+                noShowAutoCancelCount: seed.noShowAutoCancelCount ?? 0,
+                noShowAutoRescheduleCount: seed.noShowAutoRescheduleCount ?? 0,
+                lateChangeCount: seed.lateChangeCount ?? 0,
+                lateChangeCancelCount: seed.lateChangeCancelCount ?? 0,
+                lateChangeRescheduleCount: seed.lateChangeRescheduleCount ?? 0,
+                noShowFlag: seed.noShowFlag ?? false,
+                noShowWaiveNext: seed.noShowWaiveNext ?? true,
+                lateChangeWaiveNext: seed.lateChangeWaiveNext ?? true
+            )
         }
     }
 
@@ -227,11 +245,58 @@ final class ClientProfileViewModel {
                 lastBookedAt: crmStats.lastBookedAt,
                 strikeCount: crmStats.strikeCount,
                 noShowCount: updated.noShowCount ?? crmStats.noShowCount,
-                noShowFlag: false
+                noShowAdminCount: crmStats.noShowAdminCount,
+                noShowAutoCancelCount: crmStats.noShowAutoCancelCount,
+                noShowAutoRescheduleCount: crmStats.noShowAutoRescheduleCount,
+                lateChangeCount: crmStats.lateChangeCount,
+                lateChangeCancelCount: crmStats.lateChangeCancelCount,
+                lateChangeRescheduleCount: crmStats.lateChangeRescheduleCount,
+                noShowFlag: false,
+                noShowWaiveNext: updated.noShowWaiveNext ?? crmStats.noShowWaiveNext,
+                lateChangeWaiveNext: updated.lateChangeWaiveNext ?? crmStats.lateChangeWaiveNext
             )
             return true
         } catch {
             noShowFlagError =
+                (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            return false
+        }
+    }
+
+    private(set) var isGrantingFeeWaive = false
+    private(set) var feeWaiveError: String?
+
+    func grantFeeWaive(kind: GrantClientFeeWaivePayload.Kind) async -> Bool {
+        guard let clientId = client?.id else { return false }
+
+        isGrantingFeeWaive = true
+        feeWaiveError = nil
+        defer { isGrantingFeeWaive = false }
+
+        do {
+            let updated = try await AdminAPIClient.shared.grantClientFeeWaive(id: clientId, kind: kind)
+            client = mergeClient(updated)
+            crmStats = ClientHistoryCrmStats(
+                totalBookings: crmStats.totalBookings,
+                lifetimeValue: crmStats.lifetimeValue,
+                hasVaultedCard: crmStats.hasVaultedCard,
+                riskFlag: crmStats.riskFlag,
+                lastBookedAt: crmStats.lastBookedAt,
+                strikeCount: crmStats.strikeCount,
+                noShowCount: updated.noShowCount ?? crmStats.noShowCount,
+                noShowAdminCount: updated.noShowAdminCount ?? crmStats.noShowAdminCount,
+                noShowAutoCancelCount: updated.noShowAutoCancelCount ?? crmStats.noShowAutoCancelCount,
+                noShowAutoRescheduleCount: updated.noShowAutoRescheduleCount ?? crmStats.noShowAutoRescheduleCount,
+                lateChangeCount: updated.lateChangeCount ?? crmStats.lateChangeCount,
+                lateChangeCancelCount: updated.lateChangeCancelCount ?? crmStats.lateChangeCancelCount,
+                lateChangeRescheduleCount: updated.lateChangeRescheduleCount ?? crmStats.lateChangeRescheduleCount,
+                noShowFlag: updated.noShowFlag ?? crmStats.noShowFlag,
+                noShowWaiveNext: updated.noShowWaiveNext ?? (kind == .noShow ? true : crmStats.noShowWaiveNext),
+                lateChangeWaiveNext: updated.lateChangeWaiveNext ?? (kind == .lateChange ? true : crmStats.lateChangeWaiveNext)
+            )
+            return true
+        } catch {
+            feeWaiveError =
                 (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             return false
         }
@@ -296,7 +361,15 @@ final class ClientProfileViewModel {
                     ),
                     strikeCount: existing.strikeCount,
                     noShowCount: historyResponse.crmStats.noShowCount,
+                    noShowAdminCount: historyResponse.crmStats.noShowAdminCount,
+                    noShowAutoCancelCount: historyResponse.crmStats.noShowAutoCancelCount,
+                    noShowAutoRescheduleCount: historyResponse.crmStats.noShowAutoRescheduleCount,
+                    lateChangeCount: historyResponse.crmStats.lateChangeCount,
+                    lateChangeCancelCount: historyResponse.crmStats.lateChangeCancelCount,
+                    lateChangeRescheduleCount: historyResponse.crmStats.lateChangeRescheduleCount,
                     noShowFlag: historyResponse.crmStats.noShowFlag,
+                    noShowWaiveNext: historyResponse.crmStats.noShowWaiveNext,
+                    lateChangeWaiveNext: historyResponse.crmStats.lateChangeWaiveNext,
                     hasConsented: existing.hasConsented,
                     consentFormUrl: existing.consentFormUrl
                 )
@@ -332,7 +405,15 @@ final class ClientProfileViewModel {
             ),
             strikeCount: updated.strikeCount ?? client?.strikeCount,
             noShowCount: updated.noShowCount ?? client?.noShowCount,
+            noShowAdminCount: updated.noShowAdminCount ?? client?.noShowAdminCount ?? crmStats.noShowAdminCount,
+            noShowAutoCancelCount: updated.noShowAutoCancelCount ?? client?.noShowAutoCancelCount ?? crmStats.noShowAutoCancelCount,
+            noShowAutoRescheduleCount: updated.noShowAutoRescheduleCount ?? client?.noShowAutoRescheduleCount ?? crmStats.noShowAutoRescheduleCount,
+            lateChangeCount: updated.lateChangeCount ?? client?.lateChangeCount ?? crmStats.lateChangeCount,
+            lateChangeCancelCount: updated.lateChangeCancelCount ?? client?.lateChangeCancelCount ?? crmStats.lateChangeCancelCount,
+            lateChangeRescheduleCount: updated.lateChangeRescheduleCount ?? client?.lateChangeRescheduleCount ?? crmStats.lateChangeRescheduleCount,
             noShowFlag: updated.noShowFlag ?? client?.noShowFlag,
+            noShowWaiveNext: updated.noShowWaiveNext ?? client?.noShowWaiveNext ?? crmStats.noShowWaiveNext,
+            lateChangeWaiveNext: updated.lateChangeWaiveNext ?? client?.lateChangeWaiveNext ?? crmStats.lateChangeWaiveNext,
             hasConsented: updated.hasConsented ?? client?.hasConsented,
             consentFormUrl: updated.consentFormUrl ?? client?.consentFormUrl
         )

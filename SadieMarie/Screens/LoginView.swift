@@ -22,6 +22,8 @@ struct LoginView: View {
     @State private var selectedFactor: Factor?
     @State private var availableFactors: [Factor] = []
     @State private var codeDeliverySent = false
+    /// True when Clerk asked for new-device client trust (same code UI as MFA).
+    @State private var isClientTrustChallenge = false
 
     @State private var isSubmitting = false
     @State private var errorMessage: String?
@@ -152,6 +154,8 @@ struct LoginView: View {
                 factorPicker
             }
 
+            clientTrustBanner
+
             VStack(alignment: .leading, spacing: 8) {
                 Text("Verification code")
                     .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
@@ -210,6 +214,19 @@ struct LoginView: View {
         }
     }
 
+    @ViewBuilder
+    private var clientTrustBanner: some View {
+        if isClientTrustChallenge {
+            Text("You're signing in from a new device. Enter the verification code to keep your account secure.")
+                .font(AdminTheme.fontAdminSans(size: 13))
+                .foregroundStyle(AdminTheme.stone700)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(AdminTheme.stone100)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
     private var factorPicker: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Verification method")
@@ -255,6 +272,16 @@ struct LoginView: View {
     }
 
     private var secondFactorTitle: String {
+        if isClientTrustChallenge {
+            switch selectedFactor?.strategy {
+            case .emailCode:
+                return "Verify this device"
+            case .phoneCode:
+                return "Verify this device"
+            default:
+                return "Verify this device"
+            }
+        }
         switch selectedFactor?.strategy {
         case .emailCode:
             return "Check your email"
@@ -270,6 +297,20 @@ struct LoginView: View {
     }
 
     private var secondFactorSubtitle: String {
+        if isClientTrustChallenge {
+            switch selectedFactor?.strategy {
+            case .emailCode:
+                return codeDeliverySent
+                    ? "Enter the code we sent to your email to trust this device."
+                    : "We'll email you a code to confirm it's you on this device."
+            case .phoneCode:
+                return codeDeliverySent
+                    ? "Enter the code we sent via SMS to trust this device."
+                    : "We'll text you a code to confirm it's you on this device."
+            default:
+                return "Enter your verification code to trust this device and finish signing in."
+            }
+        }
         switch selectedFactor?.strategy {
         case .emailCode:
             return codeDeliverySent
@@ -328,13 +369,14 @@ struct LoginView: View {
             AppLogger.authInfo("Clerk sign-in complete for \(email).")
 
         case .needsSecondFactor:
-            beginSecondFactor(with: signIn)
+            beginSecondFactor(with: signIn, clientTrust: false)
+
+        case .needsClientTrust:
+            // New / untrusted device — same email/SMS code flow as MFA.
+            beginSecondFactor(with: signIn, clientTrust: true)
 
         case .needsNewPassword:
             errorMessage = "Your password must be reset before you can sign in. Use the web portal to set a new password."
-
-        case .needsClientTrust:
-            errorMessage = "Additional verification is required. Please try again."
 
         case .needsFirstFactor, .needsIdentifier:
             errorMessage = "Sign-in could not be completed. Check your email and password."
@@ -345,16 +387,19 @@ struct LoginView: View {
     }
 
     @MainActor
-    private func beginSecondFactor(with signIn: SignIn) {
+    private func beginSecondFactor(with signIn: SignIn, clientTrust: Bool) {
         let factors = signIn.supportedSecondFactors ?? []
         guard !factors.isEmpty else {
-            errorMessage = "Two-factor authentication is required, but no verification method was returned. Try signing in on the web portal once, then retry."
+            errorMessage = clientTrust
+                ? "This device needs verification, but no email or phone method was returned. Sign in once on the web portal, then try again here."
+                : "Two-factor authentication is required, but no verification method was returned. Try signing in on the web portal once, then retry."
             return
         }
 
+        isClientTrustChallenge = clientTrust
         pendingSignIn = signIn
         availableFactors = factors
-        selectedFactor = preferredSecondFactor(from: factors)
+        selectedFactor = preferredSecondFactor(from: factors, preferEmailForClientTrust: clientTrust)
         verificationCode = ""
         codeDeliverySent = false
         errorMessage = nil
@@ -461,16 +506,24 @@ struct LoginView: View {
         availableFactors = []
         verificationCode = ""
         codeDeliverySent = false
+        isClientTrustChallenge = false
         errorMessage = nil
     }
 
     // MARK: - Helpers
 
-    private func preferredSecondFactor(from factors: [Factor]) -> Factor {
+    private func preferredSecondFactor(
+        from factors: [Factor],
+        preferEmailForClientTrust: Bool = false
+    ) -> Factor {
+        if preferEmailForClientTrust,
+           let email = factors.first(where: { $0.strategy == .emailCode }) {
+            return email
+        }
         if let primary = factors.first(where: { $0.primary == true }) {
             return primary
         }
-        let priority: [FactorStrategy] = [.totp, .phoneCode, .emailCode, .backupCode]
+        let priority: [FactorStrategy] = [.emailCode, .phoneCode, .totp, .backupCode]
         for strategy in priority {
             if let match = factors.first(where: { $0.strategy == strategy }) {
                 return match

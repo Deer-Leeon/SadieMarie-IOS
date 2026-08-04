@@ -49,6 +49,13 @@ struct MonthAppointmentChip: View {
                     .foregroundStyle(AdminTheme.awaitingPaymentText)
                     .accessibilityLabel("No-show flag")
             }
+
+            if let payment = appointment.terminalPayment, payment.isSettled {
+                Image(systemName: BookingDisplay.settlementSystemImage(for: payment))
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(foreground)
+                    .accessibilityLabel(BookingDisplay.settlementLabel(for: payment) ?? "Paid")
+            }
         }
         .padding(.horizontal, 5)
         .padding(.vertical, 2)
@@ -62,6 +69,36 @@ struct MonthAppointmentChip: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .opacity(isNoShow ? AdminTheme.Layout.noShowOpacity : 1)
+        .allowsHitTesting(false)
+    }
+}
+
+struct MonthTimeBlockChip: View {
+    let block: TimeBlock
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 7, weight: .bold))
+            Text(block.note?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                ? block.note!
+                : "Blocked")
+                .lineLimit(1)
+        }
+        .font(AdminTheme.fontAdminSans(size: 9, weight: .medium))
+        .foregroundStyle(AdminTheme.stone600)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AdminTheme.stone100)
+        .overlay {
+            RoundedRectangle(cornerRadius: 4)
+                .stroke(
+                    AdminTheme.stone500.opacity(0.4),
+                    style: StrokeStyle(lineWidth: 0.7, dash: [2, 2])
+                )
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 4))
         .allowsHitTesting(false)
     }
 }

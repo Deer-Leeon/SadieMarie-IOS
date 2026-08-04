@@ -4,6 +4,7 @@ import SwiftUI
 struct BookingsMonthCalendarView: View {
     /// Source of truth from the parent — avoids stale shared-store timing when switching modes.
     let appointments: [Appointment]
+    let timeBlocks: [TimeBlock]
     var onDayClick: ((Date) -> Void)?
 
     @State private var store = AppointmentCalendarStore()
@@ -34,8 +35,7 @@ struct BookingsMonthCalendarView: View {
     }
 
     private var appointmentsSignature: String {
-        let prefix = appointments.prefix(5).map(\.id).joined(separator: "|")
-        return "\(appointments.count)|\(prefix)"
+        "\(appointments.hashValue)|\(timeBlocks.hashValue)"
     }
 
     var body: some View {
@@ -68,7 +68,7 @@ struct BookingsMonthCalendarView: View {
     }
 
     private func refreshStore() {
-        store.replace(appointments: appointments, force: true)
+        store.replace(appointments: appointments, timeBlocks: timeBlocks, force: true)
     }
 
     @MainActor
@@ -129,6 +129,7 @@ struct BookingsMonthCalendarView: View {
                     MonthDayCellView(
                         date: day,
                         appointments: store.appointments(on: day),
+                        timeBlocks: store.timeBlocks(on: day),
                         isToday: BookingDisplay.CalendarFormatting.isToday(day, calendar: calendar),
                         onDayClick: onDayClick
                     )

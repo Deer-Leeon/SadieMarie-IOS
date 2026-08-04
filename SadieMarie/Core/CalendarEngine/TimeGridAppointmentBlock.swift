@@ -62,11 +62,14 @@ struct TimeGridAppointmentBlock: View {
 
     private var threeDayBlock: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(clientName)
-                .font(AdminTheme.fontAdminSans(size: 11, weight: .medium))
-                .foregroundStyle(primaryText)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
+            HStack(alignment: .top, spacing: 3) {
+                Text(clientName)
+                    .font(AdminTheme.fontAdminSans(size: 11, weight: .medium))
+                    .foregroundStyle(primaryText)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                settlementIcon
+            }
 
             Text(BookingDisplay.CalendarFormatting.formattedTimeRange(for: appointment))
                 .font(AdminTheme.fontAdminSans(size: 9))
@@ -78,11 +81,14 @@ struct TimeGridAppointmentBlock: View {
 
     private var weekBlock: some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(clientName)
-                .font(AdminTheme.fontAdminSans(size: 9, weight: .medium))
-                .foregroundStyle(primaryText)
-                .lineLimit(3)
-                .minimumScaleFactor(0.65)
+            HStack(alignment: .top, spacing: 2) {
+                Text(clientName)
+                    .font(AdminTheme.fontAdminSans(size: 9, weight: .medium))
+                    .foregroundStyle(primaryText)
+                    .lineLimit(3)
+                    .minimumScaleFactor(0.65)
+                settlementIcon
+            }
 
             Text(BookingDisplay.CalendarFormatting.formattedChipTime(for: appointment))
                 .font(AdminTheme.fontAdminSans(size: 8))
@@ -96,5 +102,15 @@ struct TimeGridAppointmentBlock: View {
             first: appointment.clientFirstName,
             last: appointment.clientLastName
         )
+    }
+
+    @ViewBuilder
+    private var settlementIcon: some View {
+        if let payment = appointment.terminalPayment, payment.isSettled {
+            Image(systemName: BookingDisplay.settlementSystemImage(for: payment))
+                .font(.system(size: isWeekStyle ? 7 : 8, weight: .bold))
+                .foregroundStyle(primaryText)
+                .accessibilityLabel(BookingDisplay.settlementLabel(for: payment) ?? "Paid")
+        }
     }
 }

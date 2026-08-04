@@ -50,7 +50,15 @@ struct Client: Identifiable, Hashable, Equatable, Sendable {
     let stats: ClientCrmStats
     let strikeCount: Int?
     let noShowCount: Int?
+    let noShowAdminCount: Int?
+    let noShowAutoCancelCount: Int?
+    let noShowAutoRescheduleCount: Int?
+    let lateChangeCount: Int?
+    let lateChangeCancelCount: Int?
+    let lateChangeRescheduleCount: Int?
     let noShowFlag: Bool?
+    let noShowWaiveNext: Bool?
+    let lateChangeWaiveNext: Bool?
     let hasConsented: Bool?
     let consentFormUrl: String?
 
@@ -66,7 +74,15 @@ struct Client: Identifiable, Hashable, Equatable, Sendable {
         stats: ClientCrmStats = ClientCrmStats(),
         strikeCount: Int? = nil,
         noShowCount: Int? = nil,
+        noShowAdminCount: Int? = nil,
+        noShowAutoCancelCount: Int? = nil,
+        noShowAutoRescheduleCount: Int? = nil,
+        lateChangeCount: Int? = nil,
+        lateChangeCancelCount: Int? = nil,
+        lateChangeRescheduleCount: Int? = nil,
         noShowFlag: Bool? = nil,
+        noShowWaiveNext: Bool? = nil,
+        lateChangeWaiveNext: Bool? = nil,
         hasConsented: Bool? = nil,
         consentFormUrl: String? = nil
     ) {
@@ -81,7 +97,15 @@ struct Client: Identifiable, Hashable, Equatable, Sendable {
         self.stats = stats
         self.strikeCount = strikeCount
         self.noShowCount = noShowCount ?? strikeCount
+        self.noShowAdminCount = noShowAdminCount
+        self.noShowAutoCancelCount = noShowAutoCancelCount
+        self.noShowAutoRescheduleCount = noShowAutoRescheduleCount
+        self.lateChangeCount = lateChangeCount
+        self.lateChangeCancelCount = lateChangeCancelCount
+        self.lateChangeRescheduleCount = lateChangeRescheduleCount
         self.noShowFlag = noShowFlag
+        self.noShowWaiveNext = noShowWaiveNext
+        self.lateChangeWaiveNext = lateChangeWaiveNext
         self.hasConsented = hasConsented
         self.consentFormUrl = consentFormUrl
     }
@@ -103,7 +127,15 @@ struct Client: Identifiable, Hashable, Equatable, Sendable {
         case lifetimeValue
         case strikeCount
         case noShowCount
+        case noShowAdminCount
+        case noShowAutoCancelCount
+        case noShowAutoRescheduleCount
+        case lateChangeCount
+        case lateChangeCancelCount
+        case lateChangeRescheduleCount
         case noShowFlag
+        case noShowWaiveNext
+        case lateChangeWaiveNext
         case hasConsented
         case consentFormUrl
     }
@@ -220,7 +252,15 @@ extension Client: Decodable {
             stats: decodedStats,
             strikeCount: try container.decodeIfPresent(Int.self, forKey: .strikeCount),
             noShowCount: try container.decodeIfPresent(Int.self, forKey: .noShowCount),
+            noShowAdminCount: try container.decodeIfPresent(Int.self, forKey: .noShowAdminCount),
+            noShowAutoCancelCount: try container.decodeIfPresent(Int.self, forKey: .noShowAutoCancelCount),
+            noShowAutoRescheduleCount: try container.decodeIfPresent(Int.self, forKey: .noShowAutoRescheduleCount),
+            lateChangeCount: try container.decodeIfPresent(Int.self, forKey: .lateChangeCount),
+            lateChangeCancelCount: try container.decodeIfPresent(Int.self, forKey: .lateChangeCancelCount),
+            lateChangeRescheduleCount: try container.decodeIfPresent(Int.self, forKey: .lateChangeRescheduleCount),
             noShowFlag: try container.decodeIfPresent(Bool.self, forKey: .noShowFlag),
+            noShowWaiveNext: try container.decodeIfPresent(Bool.self, forKey: .noShowWaiveNext),
+            lateChangeWaiveNext: try container.decodeIfPresent(Bool.self, forKey: .lateChangeWaiveNext),
             hasConsented: try container.decodeIfPresent(Bool.self, forKey: .hasConsented),
             consentFormUrl: try container.decodeIfPresent(String.self, forKey: .consentFormUrl)
         )

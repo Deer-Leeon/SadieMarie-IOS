@@ -2,6 +2,7 @@ import XCTest
 @testable import SadieMarie
 
 /// Sanity tests for the Sadie Marie admin iOS app.
+@MainActor
 final class SadieMarieTests: XCTestCase {
 
     func testProjectCompiles() {
@@ -368,25 +369,19 @@ final class SadieMarieTests: XCTestCase {
     func testVisibleAppointmentsExcludesCanceledKeepsPending() {
         let pending = Appointment(
             id: "p1",
-            bookingTime: "2026-05-25T15:00:00.000Z",
-            endTime: nil,
-            status: AppointmentStatus.pending.rawValue,
             clientFirstName: "A",
             clientLastName: "B",
+            bookingTime: "2026-05-25T15:00:00.000Z",
             serviceName: "Lashes",
-            serviceSlug: nil,
-            calUid: nil
+            status: AppointmentStatus.pending.rawValue
         )
         let canceled = Appointment(
             id: "c1",
-            bookingTime: "2026-05-25T16:00:00.000Z",
-            endTime: nil,
-            status: AppointmentStatus.canceledByClient.rawValue,
             clientFirstName: "A",
             clientLastName: "B",
+            bookingTime: "2026-05-25T16:00:00.000Z",
             serviceName: "Lashes",
-            serviceSlug: nil,
-            calUid: nil
+            status: AppointmentStatus.canceledByClient.rawValue
         )
         let visible = [pending, canceled].visibleAppointments
         XCTAssertEqual(visible.map(\.id), ["p1"])
@@ -395,39 +390,32 @@ final class SadieMarieTests: XCTestCase {
     func testCalendarAppointmentsExcludesPending() {
         let pending = Appointment(
             id: "p1",
-            bookingTime: "2026-05-25T15:00:00.000Z",
-            endTime: nil,
-            status: AppointmentStatus.pending.rawValue,
             clientFirstName: "A",
             clientLastName: "B",
+            bookingTime: "2026-05-25T15:00:00.000Z",
             serviceName: "Lashes",
-            serviceSlug: nil,
-            calUid: nil
+            status: AppointmentStatus.pending.rawValue
         )
         let confirmed = Appointment(
             id: "ok",
-            bookingTime: "2026-05-25T16:00:00.000Z",
-            endTime: nil,
-            status: AppointmentStatus.confirmed.rawValue,
             clientFirstName: "A",
             clientLastName: "B",
+            bookingTime: "2026-05-25T16:00:00.000Z",
             serviceName: "Lashes",
-            serviceSlug: nil,
-            calUid: nil
+            status: AppointmentStatus.confirmed.rawValue
         )
         let grid = [pending, confirmed].calendarAppointments
         XCTAssertEqual(grid.map(\.id), ["ok"])
     }
 
     func testTimelinePositionClipsToNineToNineWindow() {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let calendar = StudioTime.calendar
         var components = DateComponents()
         components.year = 2026
         components.month = 5
         components.day = 25
         components.hour = 8
-        components.minute = 0
+        components.minute = 30
         let early = calendar.date(from: components)!
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -435,14 +423,12 @@ final class SadieMarieTests: XCTestCase {
 
         let apt = Appointment(
             id: "early",
-            bookingTime: formatter.string(from: early),
-            endTime: formatter.string(from: early.addingTimeInterval(3600)),
-            status: AppointmentStatus.confirmed.rawValue,
             clientFirstName: "A",
             clientLastName: "B",
+            bookingTime: formatter.string(from: early),
+            endTime: formatter.string(from: early.addingTimeInterval(3600)),
             serviceName: "Lashes",
-            serviceSlug: nil,
-            calUid: nil
+            status: AppointmentStatus.confirmed.rawValue
         )
         XCTAssertNotNil(TimelineEngine.position(for: apt))
         if let position = TimelineEngine.position(for: apt) {
@@ -454,11 +440,10 @@ final class SadieMarieTests: XCTestCase {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)!
-        let day = Calendar(identifier: .gregorian).date(from: DateComponents(year: 2026, month: 5, day: 25))!
+        let day = StudioTime.calendar.date(from: DateComponents(year: 2026, month: 5, day: 25))!
 
         func apt(id: String, hour: Int, minute: Int, durationMinutes: Int) -> Appointment {
-            var calendar = Calendar(identifier: .gregorian)
-            calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+            let calendar = StudioTime.calendar
             var start = DateComponents()
             start.year = 2026
             start.month = 5
@@ -469,14 +454,12 @@ final class SadieMarieTests: XCTestCase {
             let endDate = startDate.addingTimeInterval(TimeInterval(durationMinutes * 60))
             return Appointment(
                 id: id,
-                bookingTime: formatter.string(from: startDate),
-                endTime: formatter.string(from: endDate),
-                status: AppointmentStatus.confirmed.rawValue,
                 clientFirstName: "A",
                 clientLastName: "B",
+                bookingTime: formatter.string(from: startDate),
+                endTime: formatter.string(from: endDate),
                 serviceName: "Lashes",
-                serviceSlug: nil,
-                calUid: nil
+                status: AppointmentStatus.confirmed.rawValue
             )
         }
 
@@ -490,6 +473,58 @@ final class SadieMarieTests: XCTestCase {
         XCTAssertEqual(laidOut.first?.totalCols, 2)
     }
 
+    func testDecodeTimeBlocksResponse() throws {
+        let json = """
+        {
+          "blocks": [
+            {
+              "id": "blk-1",
+              "start_time": "2026-08-10T15:00:00.000Z",
+              "end_time": "2026-08-10T16:00:00.000Z",
+              "note": "Lunch",
+              "cal_booking_uid": "uid-1",
+              "cal_booking_uids": ["uid-1"]
+            }
+          ]
+        }
+        """
+        let response = try JSONDecoder().decode(TimeBlocksResponse.self, from: Data(json.utf8))
+        XCTAssertEqual(response.blocks.count, 1)
+        XCTAssertEqual(response.blocks[0].id, "blk-1")
+        XCTAssertEqual(response.blocks[0].note, "Lunch")
+        XCTAssertEqual(response.blocks[0].calBookingUid, "uid-1")
+    }
+
+    func testLayoutBlocksForDayPositionsWithinWindow() {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)!
+
+        let calendar = StudioTime.calendar
+        let day = calendar.date(from: DateComponents(year: 2026, month: 8, day: 10))!
+
+        var start = DateComponents()
+        start.year = 2026
+        start.month = 8
+        start.day = 10
+        start.hour = 12
+        start.minute = 0
+        let startDate = calendar.date(from: start)!
+        let endDate = startDate.addingTimeInterval(3600)
+
+        let block = TimeBlock(
+            id: "blk-1",
+            startTime: formatter.string(from: startDate),
+            endTime: formatter.string(from: endDate),
+            note: "Lunch"
+        )
+
+        let laidOut = TimelineEngine.layoutBlocksForDay(date: day, blocks: [block])
+        XCTAssertEqual(laidOut.count, 1)
+        XCTAssertEqual(laidOut[0].topPct, 25, accuracy: 0.5)
+        XCTAssertEqual(laidOut[0].heightPct, 100.0 / 12.0, accuracy: 0.5)
+    }
+
     func testServiceColorPastelUsesBlackText() {
         let pastel = Appointment(
             id: "1",
@@ -499,13 +534,13 @@ final class SadieMarieTests: XCTestCase {
         let pastelColors = BookingDisplay.serviceColor(for: pastel)!
         XCTAssertEqual(pastelColors.text, .black)
 
-        let mid = Appointment(
+        let dark = Appointment(
             id: "2",
             status: "confirmed",
-            serviceColor: "#B8E6B8"
+            serviceColor: "#6B4E5A"
         )
-        let midColors = BookingDisplay.serviceColor(for: mid)!
-        XCTAssertEqual(midColors.text, AdminTheme.onServiceColorText)
+        let darkColors = BookingDisplay.serviceColor(for: dark)!
+        XCTAssertEqual(darkColors.text, AdminTheme.onServiceColorText)
 
         let rowColors = BookingDisplay.rowTextColors(for: pastel)
         XCTAssertEqual(rowColors.primary, .black)
@@ -601,5 +636,147 @@ final class SadieMarieTests: XCTestCase {
         )
         let json = try JSONSerialization.jsonObject(with: payload.encodedJSON()) as? [String: Any]
         XCTAssertEqual(json?["email"] as? String, "jane@example.com")
+    }
+
+    func testDecodeTerminalPaymentWithTipAndReader() throws {
+        let json = """
+        {
+          "payment": {
+            "id": "pay-1",
+            "payment_kind": "service_payment",
+            "payment_intent_id": "pi_123",
+            "reader_id": "tmr_123",
+            "status": "succeeded",
+            "currency": "usd",
+            "base_amount_cents": 15000,
+            "tip_amount_cents": 3000,
+            "total_amount_cents": 18000,
+            "failure_code": null,
+            "failure_message": null,
+            "note": null,
+            "settled_by_email": null,
+            "paid_at": "2026-08-04T18:00:00.000Z"
+          },
+          "reader": {
+            "id": "tmr_123",
+            "label": "Front desk",
+            "status": "online",
+            "action_status": null
+          }
+        }
+        """
+        let response = try AdminAPIClient.defaultDecoder().decode(
+            TerminalPaymentAPIResponse.self,
+            from: Data(json.utf8)
+        )
+        XCTAssertEqual(response.payment?.paymentKind, .servicePayment)
+        XCTAssertEqual(response.payment?.tipAmountCents, 3000)
+        XCTAssertEqual(response.payment?.totalAmountCents, 18000)
+        XCTAssertTrue(response.payment?.isSettled == true)
+        XCTAssertFalse(response.payment?.canUndo == true)
+        XCTAssertEqual(response.reader?.status, "online")
+    }
+
+    func testManualSettlementUndoEligibilityAndOptionalNote() throws {
+        let json = """
+        {
+          "payment": {
+            "id": "pay-cash",
+            "payment_kind": "cash",
+            "payment_intent_id": null,
+            "reader_id": null,
+            "status": "succeeded",
+            "currency": "usd",
+            "base_amount_cents": 12500,
+            "tip_amount_cents": 0,
+            "total_amount_cents": 12500,
+            "failure_code": null,
+            "failure_message": null,
+            "note": "Paid at checkout",
+            "settled_by_email": "admin@example.com",
+            "paid_at": "2026-08-04T18:00:00.000Z"
+          }
+        }
+        """
+        let response = try AdminAPIClient.defaultDecoder().decode(
+            SettlementAPIResponse.self,
+            from: Data(json.utf8)
+        )
+        XCTAssertEqual(response.payment?.paymentKind, .cash)
+        XCTAssertEqual(response.payment?.note, "Paid at checkout")
+        XCTAssertTrue(response.payment?.canUndo == true)
+
+        let payload = SettlementRequest(method: .complimentary, note: nil)
+        let encoded = try JSONSerialization.jsonObject(with: payload.encodedJSON()) as? [String: Any]
+        XCTAssertEqual(encoded?["method"] as? String, "complimentary")
+        XCTAssertNil(encoded?["note"])
+    }
+
+    func testFailedTerminalPaymentIsRetryable() throws {
+        let json = """
+        {
+          "payment": {
+            "id": "pay-failed",
+            "payment_kind": "service_payment",
+            "payment_intent_id": "pi_123",
+            "reader_id": "tmr_123",
+            "status": "failed",
+            "currency": "usd",
+            "base_amount_cents": 9000,
+            "tip_amount_cents": 0,
+            "total_amount_cents": 9000,
+            "failure_code": "card_declined",
+            "failure_message": "Card declined",
+            "note": null,
+            "settled_by_email": null,
+            "paid_at": null
+          },
+          "error": "retry_required",
+          "message": "Try again"
+        }
+        """
+        let response = try AdminAPIClient.defaultDecoder().decode(
+            TerminalPaymentAPIResponse.self,
+            from: Data(json.utf8)
+        )
+        XCTAssertTrue(response.payment?.isRetryableTerminalPayment == true)
+        XCTAssertEqual(response.payment?.failureMessage, "Card declined")
+        XCTAssertFalse(response.payment?.isSettled == true)
+    }
+
+    func testTimeBlockPatchPayloadIncludesWindowAndOptionalNote() throws {
+        let payload = TimeBlockUpdateRequest(
+            start: "2026-08-10T18:00:00.000Z",
+            end: "2026-08-10T19:30:00.000Z",
+            note: "Lunch"
+        )
+        let json = try JSONSerialization.jsonObject(with: payload.encodedJSON()) as? [String: Any]
+        XCTAssertEqual(json?["start"] as? String, "2026-08-10T18:00:00.000Z")
+        XCTAssertEqual(json?["end"] as? String, "2026-08-10T19:30:00.000Z")
+        XCTAssertEqual(json?["note"] as? String, "Lunch")
+    }
+
+    @MainActor
+    func testBookAnotherResetPreservesLockedClient() {
+        let client = Client(
+            id: "client-1",
+            firstName: "Jane",
+            lastName: "Doe",
+            email: "jane@example.com",
+            phone: "18015551234"
+        )
+        let viewModel = ManualBookingViewModel(initialDate: Date(), prefilledClient: client)
+        viewModel.clientSearchQuery = "temporary"
+        viewModel.selectedDate = "2026-08-10"
+        viewModel.selectedSlot = "2026-08-10T18:00:00.000Z"
+
+        viewModel.resetForNextBooking()
+
+        XCTAssertEqual(viewModel.lockedClient?.id, "client-1")
+        XCTAssertEqual(viewModel.clientFirstName, "Jane")
+        XCTAssertEqual(viewModel.clientLastName, "Doe")
+        XCTAssertNil(viewModel.selectedDate)
+        XCTAssertNil(viewModel.selectedSlot)
+        XCTAssertEqual(viewModel.step, .service)
     }
 }

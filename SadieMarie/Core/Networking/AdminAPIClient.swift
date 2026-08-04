@@ -282,6 +282,46 @@ actor AdminAPIClient {
         )
     }
 
+    /// Raw authenticated JSON response that preserves recoverable HTTP status
+    /// codes. Payment endpoints intentionally return useful payment state with
+    /// 409/502 responses, so callers need the payload before deciding what to
+    /// present. Authentication failures remain typed client errors.
+    func fetchDataWithStatus(
+        _ endpoint: String,
+        method: HTTPMethod = .get,
+        body: Data? = nil,
+        cachePolicy: URLRequest.CachePolicy = .reloadIgnoringLocalCacheData
+    ) async throws -> (data: Data, statusCode: Int) {
+        do {
+            let token = try await tokenProvider()
+            let request = try makeRequest(
+                endpoint: endpoint,
+                token: token,
+                method: method,
+                body: body,
+                cachePolicy: cachePolicy
+            )
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw AdminAPIError.invalidResponse
+            }
+            switch http.statusCode {
+            case 401:
+                throw AdminAPIError.unauthorized
+            case 403:
+                throw AdminAPIError.forbidden
+            default:
+                return (data, http.statusCode)
+            }
+        } catch let error as AdminAPIError {
+            throw error
+        } catch let error as URLError {
+            throw AdminAPIError.transport(error)
+        } catch {
+            throw AdminAPIError.unknown(error)
+        }
+    }
+
     /// Fetch and decode a JSON response from the admin API. The
     /// active Clerk session token is fetched automatically and
     /// injected as `Authorization: Bearer <token>` — no `token`

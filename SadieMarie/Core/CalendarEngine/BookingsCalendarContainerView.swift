@@ -7,6 +7,7 @@ struct BookingsCalendarContainerView: View {
     let gridAppointments: [Appointment]
     /// List + single-day modal + month (includes pending and no-show).
     let modalAppointments: [Appointment]
+    let timeBlocks: [TimeBlock]
     var onDayClick: ((Date) -> Void)?
     var onSelectAppointment: ((Appointment) -> Void)?
 
@@ -70,6 +71,7 @@ struct BookingsCalendarContainerView: View {
         }
         .onChange(of: gridAppointments) { _, _ in syncStore() }
         .onChange(of: modalAppointments) { _, _ in syncStore() }
+        .onChange(of: timeBlocks) { _, _ in syncStore() }
         .onChange(of: mode) { _, newMode in
             syncStore()
             alignRangeStartForMode()
@@ -88,6 +90,7 @@ struct BookingsCalendarContainerView: View {
             case .month:
                 BookingsMonthCalendarView(
                     appointments: modalAppointments,
+                    timeBlocks: timeBlocks,
                     onDayClick: onDayClick
                 )
             case .list:
@@ -99,7 +102,7 @@ struct BookingsCalendarContainerView: View {
 
     private func syncStore() {
         guard mode != .month else { return }
-        store.replace(appointments: gridAppointments)
+        store.replace(appointments: gridAppointments, timeBlocks: timeBlocks)
     }
 
     private var navigationStepDays: Int {
@@ -162,6 +165,7 @@ struct BookingsCalendarContainerView: View {
     BookingsCalendarContainerView(
         mode: .threeDay,
         gridAppointments: Appointment.mockList.calendarAppointments,
-        modalAppointments: Appointment.mockList.visibleAppointments
+        modalAppointments: Appointment.mockList.visibleAppointments,
+        timeBlocks: []
     )
 }
