@@ -136,8 +136,6 @@ struct BookingsView: View {
                             appointmentId: appointment.id,
                             payment: payment
                         )
-                        selectedAppointment = appointment.withTerminalPayment(payment)
-                        Task { await viewModel.load() }
                     }
                 )
             }

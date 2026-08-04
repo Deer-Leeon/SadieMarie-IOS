@@ -106,11 +106,9 @@ struct TimeGridAppointmentBlock: View {
 
     @ViewBuilder
     private var settlementIcon: some View {
-        if let payment = appointment.terminalPayment, payment.isSettled {
-            Image(systemName: BookingDisplay.settlementSystemImage(for: payment))
-                .font(.system(size: isWeekStyle ? 7 : 8, weight: .bold))
-                .foregroundStyle(primaryText)
-                .accessibilityLabel(BookingDisplay.settlementLabel(for: payment) ?? "Paid")
-        }
+        SettlementCheckMarker(
+            payment: appointment.terminalPayment,
+            size: isWeekStyle ? .sm : .md
+        )
     }
 }

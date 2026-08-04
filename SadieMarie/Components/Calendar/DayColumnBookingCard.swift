@@ -114,19 +114,34 @@ struct DayColumnBookingCard: View {
             }
             .padding(.horizontal, isWeekStyle ? 3 : 5)
             .padding(.vertical, isWeekStyle ? 2 : 4)
+            .padding(
+                .trailing,
+                appointment.terminalPayment?.isSettled == true || hasNoShowFlag
+                    ? (isWeekStyle ? 16 : 20)
+                    : 0
+            )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-            if hasNoShowFlag {
-                Image(systemName: "flag.fill")
-                    .font(.system(size: isWeekStyle ? 7 : 8, weight: .bold))
-                    .foregroundStyle(AdminTheme.awaitingPaymentText)
-                    .padding(2)
-                    .background(AdminTheme.awaitingPaymentBackground.opacity(0.95))
-                    .clipShape(RoundedRectangle(cornerRadius: 2))
-                    .padding(2)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .accessibilityLabel("No-show flag")
+            // Top-trailing cluster matches web TimeGrid pills: settlement
+            // marker first, then optional no-show flag.
+            HStack(spacing: 2) {
+                SettlementCheckMarker(
+                    payment: appointment.terminalPayment,
+                    size: isWeekStyle ? .sm : .md
+                )
+                if hasNoShowFlag {
+                    Image(systemName: "flag.fill")
+                        .font(.system(size: isWeekStyle ? 7 : 8, weight: .bold))
+                        .foregroundStyle(AdminTheme.awaitingPaymentText)
+                        .padding(2)
+                        .background(AdminTheme.awaitingPaymentBackground.opacity(0.95))
+                        .clipShape(RoundedRectangle(cornerRadius: 2))
+                        .accessibilityLabel("No-show flag")
+                }
             }
+            .padding(isWeekStyle ? 2 : 3)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .allowsHitTesting(false)
         }
         .frame(maxWidth: .infinity, maxHeight: blockHeight, alignment: .top)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))

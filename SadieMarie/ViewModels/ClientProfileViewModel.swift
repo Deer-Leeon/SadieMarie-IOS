@@ -331,6 +331,14 @@ final class ClientProfileViewModel {
         }
     }
 
+    func applyPayment(appointmentId: String, payment: AppointmentPaymentSummary?) {
+        history = history.map { appointment in
+            appointment.id == appointmentId
+                ? appointment.withTerminalPayment(payment)
+                : appointment
+        }
+    }
+
     private func loadDossier() async {
         guard let clientId = client?.id else { return }
 

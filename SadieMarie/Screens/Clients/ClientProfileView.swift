@@ -120,8 +120,10 @@ struct ClientProfileView: View {
                     },
                     onPaymentMutated: { payment in
                         historyMutated = true
-                        selectedAppointment = appointment.withTerminalPayment(payment)
-                        Task { await viewModel.reloadDossier() }
+                        viewModel.applyPayment(
+                            appointmentId: appointment.id,
+                            payment: payment
+                        )
                     }
                 )
             }

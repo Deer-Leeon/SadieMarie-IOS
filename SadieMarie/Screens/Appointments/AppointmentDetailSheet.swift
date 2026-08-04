@@ -5,7 +5,7 @@ struct AppointmentDetailSheet: View {
     let appointment: Appointment
     var onDismiss: () -> Void
     var onMutated: () -> Void
-    var onPaymentMutated: (AppointmentPaymentSummary?) -> Void = { _ in }
+    var onPaymentMutated: (AppointmentPaymentSummary?) -> Void
 
     @State private var statusAction: StatusAction?
     @State private var statusError: String?
@@ -15,6 +15,22 @@ struct AppointmentDetailSheet: View {
     @State private var showCancelConfirm = false
     @State private var showReschedule = false
     @State private var clientProfileEntry: ClientProfileEntry?
+    /// Live settlement snapshot so Comp/Cash/Charge update the open sheet
+    /// immediately without relying on a close/reopen cycle.
+    @State private var livePayment: AppointmentPaymentSummary?
+
+    init(
+        appointment: Appointment,
+        onDismiss: @escaping () -> Void,
+        onMutated: @escaping () -> Void,
+        onPaymentMutated: @escaping (AppointmentPaymentSummary?) -> Void = { _ in }
+    ) {
+        self.appointment = appointment
+        self.onDismiss = onDismiss
+        self.onMutated = onMutated
+        self.onPaymentMutated = onPaymentMutated
+        _livePayment = State(initialValue: appointment.terminalPayment)
+    }
 
     private var headerStatus: BookingDisplay.DetailHeaderStatus {
         BookingDisplay.detailHeaderStatus(for: appointment)
@@ -60,7 +76,7 @@ struct AppointmentDetailSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    headerEyebrow
+                    headerBlock
 
                     if let statusError {
                         errorBanner(statusError)
@@ -72,7 +88,11 @@ struct AppointmentDetailSheet: View {
                     if !isReadOnly {
                         AppointmentPaymentCard(
                             appointment: appointment,
-                            onPaymentChanged: onPaymentMutated
+                            payment: $livePayment,
+                            onPaymentChanged: { payment in
+                                livePayment = payment
+                                onPaymentMutated(payment)
+                            }
                         )
                     }
                     if let notes = appointment.bookingNotes?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -179,11 +199,19 @@ struct AppointmentDetailSheet: View {
 
     // MARK: - Header
 
-    private var headerEyebrow: some View {
-        Text(headerStatus.label.uppercased())
-            .font(AdminTheme.fontAdminSans(size: 11, weight: .semibold))
-            .tracking(AdminTheme.Typography.dayHeaderTracking)
-            .foregroundStyle(headerStatus.color)
+    private var headerBlock: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(headerStatus.label.uppercased())
+                .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
+                .tracking(2.8)
+                .foregroundStyle(headerStatus.color)
+
+            Text("Appointment")
+                .font(AdminTheme.fontAdminSerif(size: 28))
+                .foregroundStyle(AdminTheme.stone900)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, 4)
     }
 
     // MARK: - Cards
@@ -194,22 +222,20 @@ struct AppointmentDetailSheet: View {
         } label: {
             AdminDetailCard {
                 VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("Client")
-                            .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
-                            .foregroundStyle(AdminTheme.stone700)
-                        Spacer()
+                    sectionLabel("Client", icon: "person")
+
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(BookingDisplay.clientDisplayName(
+                            first: appointment.clientFirstName,
+                            last: appointment.clientLastName
+                        ))
+                        .font(AdminTheme.fontAdminSerif(size: 22))
+                        .foregroundStyle(AdminTheme.stone900)
+
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(AdminTheme.stone500)
                     }
-
-                    Text(BookingDisplay.clientDisplayName(
-                        first: appointment.clientFirstName,
-                        last: appointment.clientLastName
-                    ))
-                    .font(AdminTheme.fontAdminSerif(size: 20))
-                    .foregroundStyle(AdminTheme.stone900)
 
                     if let phone = appointment.clientPhone, !phone.isEmpty {
                         detailLine(icon: "phone", text: Client(id: "preview", phone: phone).formattedPhone)
@@ -229,17 +255,21 @@ struct AppointmentDetailSheet: View {
     private var timeCard: some View {
         AdminDetailCard {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Date & time")
-                    .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
-                    .foregroundStyle(AdminTheme.stone700)
+                sectionLabel("Date & Time", icon: "calendar")
 
                 Text(BookingDisplay.formattedDetailDate(for: appointment))
                     .font(AdminTheme.fontAdminSerif(size: 18))
                     .foregroundStyle(AdminTheme.stone900)
 
-                Text(BookingDisplay.formattedDetailTimeRange(for: appointment))
-                    .font(AdminTheme.fontAdminSans(size: 15))
-                    .foregroundStyle(AdminTheme.stone700)
+                HStack(spacing: 8) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(AdminTheme.stone500)
+                    Text(BookingDisplay.formattedDetailTimeRange(for: appointment))
+                        .font(AdminTheme.fontAdminSans(size: 15))
+                        .foregroundStyle(AdminTheme.stone700)
+                }
+                .padding(.top, 2)
             }
         }
     }
@@ -247,33 +277,31 @@ struct AppointmentDetailSheet: View {
     private var serviceCard: some View {
         AdminDetailCard {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Service")
-                    .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
-                    .foregroundStyle(AdminTheme.stone700)
+                sectionLabel("Service", icon: "scissors")
 
-                Text(BookingDisplay.appointmentServiceLabel(appointment))
-                    .font(AdminTheme.fontAdminSerif(size: 18))
-                    .foregroundStyle(AdminTheme.stone900)
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(BookingDisplay.appointmentServiceLabel(appointment))
+                            .font(AdminTheme.fontAdminSerif(size: 18))
+                            .foregroundStyle(AdminTheme.stone900)
 
-                if let mins = BookingDisplay.appointmentDurationMinutes(appointment) {
-                    Text("\(mins) min")
-                        .font(AdminTheme.fontAdminSans(size: 14))
-                        .foregroundStyle(AdminTheme.stone700)
-                }
+                        if let description = appointment.serviceDescription,
+                           !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text(description)
+                                .font(AdminTheme.fontAdminSans(size: 14))
+                                .foregroundStyle(AdminTheme.stone500)
+                                .italic()
+                                .lineLimit(4)
+                        }
+                    }
 
-                if let priceText = BookingDisplay.formattedPrice(appointment.servicePrice) {
-                    Text(priceText)
-                        .font(AdminTheme.fontAdminSans(size: 15, weight: .medium))
-                        .foregroundStyle(AdminTheme.stone900)
-                }
+                    Spacer(minLength: 8)
 
-                if let description = appointment.serviceDescription,
-                   !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(description)
-                        .font(AdminTheme.fontAdminSans(size: 14))
-                        .foregroundStyle(AdminTheme.stone700)
-                        .italic()
-                        .padding(.top, 4)
+                    if let priceText = BookingDisplay.formattedPrice(appointment.servicePrice) {
+                        Text(priceText)
+                            .font(AdminTheme.fontAdminSerif(size: 18))
+                            .foregroundStyle(AdminTheme.stone900)
+                    }
                 }
             }
         }
@@ -282,14 +310,24 @@ struct AppointmentDetailSheet: View {
     private func notesCard(_ notes: String) -> some View {
         AdminDetailCard {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Booking notes")
-                    .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
-                    .foregroundStyle(AdminTheme.stone700)
+                sectionLabel("Booking notes", icon: "text.alignleft")
                 Text(notes)
                     .font(AdminTheme.fontAdminSans(size: 14))
                     .foregroundStyle(AdminTheme.stone700)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    private func sectionLabel(_ title: String, icon: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(AdminTheme.stone500)
+            Text(title.uppercased())
+                .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
+                .tracking(2.2)
+                .foregroundStyle(AdminTheme.stone500)
         }
     }
 

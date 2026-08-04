@@ -251,11 +251,60 @@ enum BookingDisplay {
     }
 
     static func settlementSystemImage(for payment: AppointmentPaymentSummary?) -> String {
-        guard let payment else { return "checkmark.circle.fill" }
+        guard let payment else { return "checkmark" }
         switch payment.paymentKind {
-        case .servicePayment: return "creditcard.fill"
-        case .cash: return "dollarsign.circle.fill"
-        case .complimentary: return "heart.circle.fill"
+        case .servicePayment: return "checkmark"
+        case .cash: return "dollarsign"
+        // Outline heart matches web Lucide `Heart` on calendar markers.
+        case .complimentary: return "heart"
+        }
+    }
+
+    /// Modal banner eyebrow (web `settlementLabel`) — rendered uppercase in UI.
+    static func settlementBannerEyebrow(for payment: AppointmentPaymentSummary) -> String {
+        switch payment.paymentKind {
+        case .complimentary: return "Complimentary"
+        case .cash: return "Paid cash"
+        case .servicePayment: return "Paid in person"
+        }
+    }
+
+    /// Modal banner supporting line under the eyebrow.
+    static func settlementBannerSubtitle(for payment: AppointmentPaymentSummary) -> String {
+        switch payment.paymentKind {
+        case .complimentary:
+            return "No charge · settled without payment"
+        case .cash:
+            let service = formattedCents(payment.baseAmountCents, currency: payment.currency)
+            if payment.tipAmountCents > 0 {
+                let tip = formattedCents(payment.tipAmountCents, currency: payment.currency)
+                return "Service \(service) + \(tip) tip"
+            }
+            return "Service \(service) · Cash"
+        case .servicePayment:
+            let service = formattedCents(payment.baseAmountCents, currency: payment.currency)
+            if payment.tipAmountCents > 0 {
+                let tip = formattedCents(payment.tipAmountCents, currency: payment.currency)
+                return "Service \(service) + \(tip) tip"
+            }
+            return "Service \(service) · No tip"
+        }
+    }
+
+    /// Right-side amount in the settlement banner ("Comp" or "$70").
+    static func settlementBannerAmount(for payment: AppointmentPaymentSummary) -> String {
+        if payment.paymentKind == .complimentary {
+            return "Comp"
+        }
+        return formattedCents(payment.totalAmountCents, currency: payment.currency)
+    }
+
+    /// Footer settled pill label (COMPED / CASH / PAID).
+    static func settlementFooterPaidLabel(for payment: AppointmentPaymentSummary) -> String {
+        switch payment.paymentKind {
+        case .complimentary: return "Comped"
+        case .cash: return "Cash"
+        case .servicePayment: return "Paid"
         }
     }
 

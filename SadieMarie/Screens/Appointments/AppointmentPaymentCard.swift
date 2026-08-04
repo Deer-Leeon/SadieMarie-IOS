@@ -1,25 +1,21 @@
 import SwiftUI
 
+/// Payment box for the appointment detail sheet.
+/// Unsettled: three side-by-side Charge / Cash / Comp actions.
+/// Settled: emerald banner matching web `PaymentBox` (replaces the box).
 struct AppointmentPaymentCard: View {
     let appointment: Appointment
+    @Binding var payment: AppointmentPaymentSummary?
     var onPaymentChanged: (AppointmentPaymentSummary?) -> Void
 
-    @State private var payment: AppointmentPaymentSummary?
     @State private var showTerminal = false
     @State private var settlementMethod: AppointmentSettlementMethod?
     @State private var note = ""
     @State private var isSubmitting = false
     @State private var errorMessage: String?
     @State private var showUndoConfirmation = false
-
-    init(
-        appointment: Appointment,
-        onPaymentChanged: @escaping (AppointmentPaymentSummary?) -> Void
-    ) {
-        self.appointment = appointment
-        self.onPaymentChanged = onPaymentChanged
-        _payment = State(initialValue: appointment.terminalPayment)
-    }
+    @State private var pendingSettledPayment: AppointmentPaymentSummary?
+    @State private var shouldApplyPendingPayment = false
 
     private var succeededPayment: AppointmentPaymentSummary? {
         guard payment?.isSettled == true else { return nil }
@@ -31,42 +27,22 @@ struct AppointmentPaymentCard: View {
     }
 
     var body: some View {
-        AdminDetailCard {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    Text("Payment")
-                        .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
-                        .foregroundStyle(AdminTheme.stone700)
-                    Spacer()
-                    if let succeededPayment,
-                       let label = BookingDisplay.settlementLabel(for: succeededPayment) {
-                        settlementBadge(label, payment: succeededPayment)
-                    }
-                }
-
-                if let succeededPayment {
-                    settledContent(succeededPayment)
-                } else {
-                    unsettledContent
-                }
-
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(AdminTheme.fontAdminSans(size: 12))
-                        .foregroundStyle(Color.semanticRed)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+        Group {
+            if let succeededPayment {
+                settlementBanner(succeededPayment)
+            } else {
+                unsettledBox
             }
         }
         .fullScreenCover(isPresented: $showTerminal) {
             TerminalChargeView(
                 appointment: appointment.withTerminalPayment(payment),
                 initialPayment: payment,
-                onPaymentChanged: applyPayment,
+                onPaymentChanged: commitPayment,
                 onClose: { showTerminal = false }
             )
         }
-        .sheet(item: $settlementMethod) { method in
+        .sheet(item: $settlementMethod, onDismiss: flushPendingPaymentApply) { method in
             settlementSheet(method)
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
@@ -77,7 +53,10 @@ struct AppointmentPaymentCard: View {
             isPresented: $showUndoConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Undo \(BookingDisplay.settlementLabel(for: payment) ?? "settlement")", role: .destructive) {
+            Button(
+                "Undo \(BookingDisplay.settlementLabel(for: payment) ?? "settlement")",
+                role: .destructive
+            ) {
                 Task { await undoSettlement() }
             }
             Button("Keep settlement", role: .cancel) {}
@@ -86,79 +65,46 @@ struct AppointmentPaymentCard: View {
         }
     }
 
-    private func settlementBadge(
-        _ label: String,
-        payment: AppointmentPaymentSummary
-    ) -> some View {
-        Label(label, systemImage: BookingDisplay.settlementSystemImage(for: payment))
-            .font(AdminTheme.fontAdminSans(size: 11, weight: .semibold))
-            .foregroundStyle(Color.green)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(Color.green.opacity(0.11))
-            .clipShape(Capsule())
-    }
+    // MARK: - Unsettled box
 
-    private func settledContent(_ payment: AppointmentPaymentSummary) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(settlementTitle(payment))
-                        .font(AdminTheme.fontAdminSerif(size: 19))
-                        .foregroundStyle(AdminTheme.stone900)
-                    if let note = payment.note, !note.isEmpty {
-                        Text(note)
-                            .font(AdminTheme.fontAdminSans(size: 13))
-                            .foregroundStyle(AdminTheme.stone700)
-                    }
-                }
-                Spacer()
-                Text(BookingDisplay.formattedCents(
-                    payment.totalAmountCents,
-                    currency: payment.currency
-                ))
-                .font(AdminTheme.fontAdminSerif(size: 19))
-                .foregroundStyle(AdminTheme.stone900)
-            }
+    private var unsettledBox: some View {
+        AdminDetailCard {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Payment")
+                    .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
+                    .foregroundStyle(AdminTheme.stone700)
 
-            if payment.paymentKind == .servicePayment, payment.tipAmountCents > 0 {
-                Text("Includes \(BookingDisplay.formattedCents(payment.tipAmountCents, currency: payment.currency)) tip")
-                    .font(AdminTheme.fontAdminSans(size: 12))
-                    .foregroundStyle(AdminTheme.stone500)
-            }
-
-            if BookingDisplay.canUndoSettlement(payment) {
-                Button("Undo settlement") {
-                    showUndoConfirmation = true
-                }
-                .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
-                .foregroundStyle(Color.semanticRed)
-                .disabled(isSubmitting)
-            }
-        }
-    }
-
-    private var unsettledContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(isConfirmed ? "Choose how this appointment was settled." : "Only confirmed appointments can be settled.")
+                Text(
+                    isConfirmed
+                        ? "Choose how this appointment was settled."
+                        : "Only confirmed appointments can be settled."
+                )
                 .font(AdminTheme.fontAdminSans(size: 13))
                 .foregroundStyle(AdminTheme.stone700)
 
-            HStack(spacing: 8) {
-                paymentAction("Charge", icon: "creditcard") {
-                    showTerminal = true
-                }
-                .disabled(!isConfirmed || isSubmitting || !hasChargeablePrice)
+                HStack(spacing: 8) {
+                    paymentAction("Charge", icon: "creditcard") {
+                        showTerminal = true
+                    }
+                    .disabled(!isConfirmed || isSubmitting || !hasChargeablePrice)
 
-                paymentAction("Cash", icon: "dollarsign") {
-                    prepareSettlement(.cash)
-                }
-                .disabled(!isConfirmed || isSubmitting || appointment.servicePrice == nil)
+                    paymentAction("Cash", icon: "dollarsign") {
+                        prepareSettlement(.cash)
+                    }
+                    .disabled(!isConfirmed || isSubmitting || appointment.servicePrice == nil)
 
-                paymentAction("Comp", icon: "heart") {
-                    prepareSettlement(.complimentary)
+                    paymentAction("Comp", icon: "heart") {
+                        prepareSettlement(.complimentary)
+                    }
+                    .disabled(!isConfirmed || isSubmitting)
                 }
-                .disabled(!isConfirmed || isSubmitting)
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(AdminTheme.fontAdminSans(size: 12))
+                        .foregroundStyle(Color.semanticRed)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
@@ -188,6 +134,77 @@ struct AppointmentPaymentCard: View {
         }
         .buttonStyle(.plain)
     }
+
+    // MARK: - Settled banner (web PaymentBox)
+
+    private func settlementBanner(_ payment: AppointmentPaymentSummary) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .center, spacing: 10) {
+                    Image(systemName: "checkmark.circle")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(AdminTheme.confirmedText)
+                        .frame(width: 32, height: 32)
+                        .background(Color(red: 209 / 255, green: 250 / 255, blue: 229 / 255))
+                        .clipShape(Circle())
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(BookingDisplay.settlementBannerEyebrow(for: payment).uppercased())
+                            .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
+                            .tracking(2.2)
+                            .foregroundStyle(AdminTheme.confirmedText)
+
+                        Text(BookingDisplay.settlementBannerSubtitle(for: payment))
+                            .font(AdminTheme.fontAdminSans(size: 14))
+                            .foregroundStyle(Color(red: 2 / 255, green: 44 / 255, blue: 34 / 255))
+
+                        if let note = payment.note, !note.isEmpty {
+                            Text(note)
+                                .font(AdminTheme.fontAdminSans(size: 12))
+                                .foregroundStyle(AdminTheme.confirmedText.opacity(0.8))
+                                .padding(.top, 2)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 8)
+
+                Text(BookingDisplay.settlementBannerAmount(for: payment))
+                    .font(AdminTheme.fontAdminSerif(size: 22))
+                    .foregroundStyle(Color(red: 2 / 255, green: 44 / 255, blue: 34 / 255))
+            }
+
+            if BookingDisplay.canUndoSettlement(payment) {
+                Button {
+                    showUndoConfirmation = true
+                } label: {
+                    Text(isSubmitting ? "UNDOING…" : "UNDO SETTLEMENT")
+                        .font(AdminTheme.fontAdminSans(size: 11, weight: .medium))
+                        .tracking(1.6)
+                        .foregroundStyle(AdminTheme.confirmedText.opacity(0.85))
+                }
+                .buttonStyle(.plain)
+                .disabled(isSubmitting)
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(AdminTheme.fontAdminSans(size: 12))
+                    .foregroundStyle(Color.semanticRed)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AdminTheme.confirmedBackground.opacity(0.7))
+        .overlay(
+            RoundedRectangle(cornerRadius: AdminTheme.Radius.card)
+                .stroke(AdminTheme.confirmedBorder, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AdminTheme.Radius.card))
+    }
+
+    // MARK: - Settlement confirm sheet
 
     private func settlementSheet(_ method: AppointmentSettlementMethod) -> some View {
         NavigationStack {
@@ -236,17 +253,11 @@ struct AppointmentPaymentCard: View {
         }
     }
 
+    // MARK: - Actions
+
     private var hasChargeablePrice: Bool {
         guard let price = appointment.servicePrice else { return false }
         return price >= 0.5
-    }
-
-    private func settlementTitle(_ payment: AppointmentPaymentSummary) -> String {
-        switch payment.paymentKind {
-        case .servicePayment: return "Paid by card"
-        case .cash: return "Paid in cash"
-        case .complimentary: return "Complimentary service"
-        }
     }
 
     private func settlementExplanation(_ method: AppointmentSettlementMethod) -> String {
@@ -268,6 +279,7 @@ struct AppointmentPaymentCard: View {
         settlementMethod = method
     }
 
+    @MainActor
     private func settle(_ method: AppointmentSettlementMethod) async {
         guard !isSubmitting else { return }
         isSubmitting = true
@@ -280,9 +292,15 @@ struct AppointmentPaymentCard: View {
                 method: method,
                 note: note
             )
-            if let updated = result.response.payment,
-               result.succeeded || updated.isSettled {
-                applyPayment(updated)
+            if result.succeeded, let updated = result.response.payment {
+                pendingSettledPayment = updated
+                shouldApplyPendingPayment = true
+                settlementMethod = nil
+                return
+            }
+            if let updated = result.response.payment, updated.isSettled {
+                pendingSettledPayment = updated
+                shouldApplyPendingPayment = true
                 settlementMethod = nil
                 return
             }
@@ -294,6 +312,7 @@ struct AppointmentPaymentCard: View {
         }
     }
 
+    @MainActor
     private func undoSettlement() async {
         guard !isSubmitting else { return }
         isSubmitting = true
@@ -305,9 +324,9 @@ struct AppointmentPaymentCard: View {
                 appointmentId: appointment.id
             )
             if result.succeeded {
-                applyPayment(nil)
+                commitPayment(nil)
             } else if let updated = result.response.payment {
-                applyPayment(updated)
+                commitPayment(updated.isSettled ? updated : nil)
                 errorMessage = result.response.message
             } else {
                 errorMessage = result.response.message ?? "Could not undo this settlement."
@@ -317,7 +336,15 @@ struct AppointmentPaymentCard: View {
         }
     }
 
-    private func applyPayment(_ updated: AppointmentPaymentSummary?) {
+    private func flushPendingPaymentApply() {
+        guard shouldApplyPendingPayment else { return }
+        shouldApplyPendingPayment = false
+        let updated = pendingSettledPayment
+        pendingSettledPayment = nil
+        commitPayment(updated)
+    }
+
+    private func commitPayment(_ updated: AppointmentPaymentSummary?) {
         payment = updated
         onPaymentChanged(updated)
     }

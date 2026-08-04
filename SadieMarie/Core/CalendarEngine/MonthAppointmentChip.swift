@@ -36,30 +36,34 @@ struct MonthAppointmentChip: View {
     }
 
     var body: some View {
-        HStack(spacing: 2) {
-            Text(BookingDisplay.CalendarFormatting.formattedChipTime(for: appointment))
-                .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
-                .foregroundStyle(foreground)
-                .lineLimit(1)
-                .strikethrough(isNoShow, color: foreground)
-
-            if hasNoShowFlag {
-                Image(systemName: "flag.fill")
-                    .font(.system(size: 7, weight: .bold))
-                    .foregroundStyle(AdminTheme.awaitingPaymentText)
-                    .accessibilityLabel("No-show flag")
-            }
-
-            if let payment = appointment.terminalPayment, payment.isSettled {
-                Image(systemName: BookingDisplay.settlementSystemImage(for: payment))
-                    .font(.system(size: 7, weight: .bold))
+        ZStack(alignment: .topTrailing) {
+            HStack(spacing: 2) {
+                Text(BookingDisplay.CalendarFormatting.formattedChipTime(for: appointment))
+                    .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
                     .foregroundStyle(foreground)
-                    .accessibilityLabel(BookingDisplay.settlementLabel(for: payment) ?? "Paid")
+                    .lineLimit(1)
+                    .strikethrough(isNoShow, color: foreground)
+
+                if hasNoShowFlag {
+                    Image(systemName: "flag.fill")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(AdminTheme.awaitingPaymentText)
+                        .accessibilityLabel("No-show flag")
+                }
+
+                // Reserve trailing space so time doesn't collide with the marker.
+                if appointment.terminalPayment?.isSettled == true {
+                    Color.clear.frame(width: 12, height: 1)
+                }
             }
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            SettlementCheckMarker(payment: appointment.terminalPayment, size: .sm)
+                .padding(.top, 1)
+                .padding(.trailing, 2)
         }
-        .padding(.horizontal, 5)
-        .padding(.vertical, 2)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .background(background)
         .overlay {
             if hasNoShowFlag && !isNoShow {

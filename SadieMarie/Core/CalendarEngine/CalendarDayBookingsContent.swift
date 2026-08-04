@@ -68,10 +68,8 @@ struct CalendarDayBookingsContent: View {
                 .foregroundStyle(AdminTheme.stone900)
                 .lineLimit(1)
 
-                if let payment = appointment.terminalPayment, payment.isSettled {
-                    Image(systemName: BookingDisplay.settlementSystemImage(for: payment))
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(AdminTheme.stone700)
+                if appointment.terminalPayment?.isSettled == true {
+                    SettlementCheckMarker(payment: appointment.terminalPayment, size: .sm)
                 }
             }
 

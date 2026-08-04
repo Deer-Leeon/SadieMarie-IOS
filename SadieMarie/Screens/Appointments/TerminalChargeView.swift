@@ -82,6 +82,9 @@ struct TerminalChargeView: View {
         }
         .tint(AdminTheme.stone900)
         .preferredColorScheme(.light)
+        .task {
+            await startAutomaticallyIfNeeded()
+        }
         .task(id: isActive) {
             guard isActive else { return }
             await pollWhileActive()
@@ -273,9 +276,15 @@ struct TerminalChargeView: View {
     }
 
     private func startPayment() async {
-        await performOperation {
+        await performOperation(automaticallyRetryFailedAttempt: true) {
             try await AdminAPIClient.shared.startTerminalPayment(appointmentId: appointment.id)
         }
+    }
+
+    private func startAutomaticallyIfNeeded() async {
+        guard !isSucceeded, !isActive else { return }
+        showAttemptResult = false
+        await startPayment()
     }
 
     private func retryPayment() async {
@@ -296,6 +305,7 @@ struct TerminalChargeView: View {
 
     private func performOperation(
         showResult: Bool = true,
+        automaticallyRetryFailedAttempt: Bool = false,
         operation: () async throws -> PaymentOperationResult
     ) async {
         guard !isSubmitting else { return }
@@ -304,14 +314,25 @@ struct TerminalChargeView: View {
         defer { isSubmitting = false }
 
         do {
-            let result = try await operation()
+            var result = try await operation()
             apply(result.response)
+
+            if automaticallyRetryFailedAttempt,
+               result.response.error == "retry_required",
+               result.response.payment?.isRetryableTerminalPayment == true {
+                result = try await AdminAPIClient.shared.retryTerminalPayment(
+                    appointmentId: appointment.id
+                )
+                apply(result.response)
+            }
+
             if let message = result.response.message, !result.succeeded {
                 errorMessage = message
             }
             showAttemptResult = showResult
         } catch {
             errorMessage = error.localizedDescription
+            showAttemptResult = payment?.status == .failed || payment?.status == .canceled
         }
     }
 

@@ -48,10 +48,10 @@ struct BookingCardView: View {
                         )
                     )
                     .font(AdminTheme.fontAdminSans(size: 9, weight: .semibold))
-                    .foregroundStyle(textColors.primary)
+                    .foregroundStyle(Color(red: 4 / 255, green: 120 / 255, blue: 87 / 255))
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
-                    .background(AdminTheme.cardFill.opacity(usesServiceBackground ? 0.72 : 1))
+                    .background(Color(red: 236 / 255, green: 253 / 255, blue: 245 / 255))
                     .clipShape(Capsule())
                     .accessibilityLabel("\(label) settlement")
                 }
