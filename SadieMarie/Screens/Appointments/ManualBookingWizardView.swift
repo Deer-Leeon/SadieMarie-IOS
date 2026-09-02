@@ -266,7 +266,7 @@ struct ManualBookingWizardView: View {
                     .foregroundStyle(AdminTheme.stone500)
                 Text("Optional")
                     .font(AdminTheme.fontAdminSans(size: 10))
-                    .foregroundStyle(AdminTheme.stone400)
+                    .foregroundStyle(AdminTheme.stone300)
             }
             TextField(
                 "Anything to remember for this visit",
