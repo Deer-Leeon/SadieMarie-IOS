@@ -61,6 +61,16 @@ struct Client: Identifiable, Hashable, Equatable, Sendable {
     let lateChangeWaiveNext: Bool?
     let hasConsented: Bool?
     let consentFormUrl: String?
+    /// ISO 8601 — when an admin stamped “Reviewed by Technician” on the PDF.
+    let consentTechnicianReviewedAt: String?
+    /// When true, send a Google review SMS ~30 minutes after the next completed visit.
+    let reviewRequestPending: Bool?
+    /// True when `googleReviewStars` is 1...5.
+    let googleReviewNoted: Bool?
+    /// Admin-entered Google star count (1...5). Nil = not recorded.
+    let googleReviewStars: Int?
+    let googleReviewNotedAt: String?
+    let reviewRequestLastSentAt: String?
 
     init(
         id: String,
@@ -84,7 +94,13 @@ struct Client: Identifiable, Hashable, Equatable, Sendable {
         noShowWaiveNext: Bool? = nil,
         lateChangeWaiveNext: Bool? = nil,
         hasConsented: Bool? = nil,
-        consentFormUrl: String? = nil
+        consentFormUrl: String? = nil,
+        consentTechnicianReviewedAt: String? = nil,
+        reviewRequestPending: Bool? = nil,
+        googleReviewNoted: Bool? = nil,
+        googleReviewStars: Int? = nil,
+        googleReviewNotedAt: String? = nil,
+        reviewRequestLastSentAt: String? = nil
     ) {
         self.id = id
         self.firstName = firstName
@@ -108,6 +124,59 @@ struct Client: Identifiable, Hashable, Equatable, Sendable {
         self.lateChangeWaiveNext = lateChangeWaiveNext
         self.hasConsented = hasConsented
         self.consentFormUrl = consentFormUrl
+        self.consentTechnicianReviewedAt = consentTechnicianReviewedAt
+        self.reviewRequestPending = reviewRequestPending
+        self.googleReviewNoted = googleReviewNoted ?? (googleReviewStars != nil)
+        self.googleReviewStars = googleReviewStars
+        self.googleReviewNotedAt = googleReviewNotedAt
+        self.reviewRequestLastSentAt = reviewRequestLastSentAt
+    }
+
+    func withReviewFlags(
+        pending: Bool? = nil,
+        stars: Int? = nil,
+        clearStars: Bool = false
+    ) -> Client {
+        var nextStars = googleReviewStars
+        if clearStars {
+            nextStars = nil
+        } else if let stars {
+            nextStars = stars
+        }
+        var nextPending = pending ?? reviewRequestPending ?? false
+        if !clearStars, stars != nil {
+            nextPending = false
+        }
+        return Client(
+            id: id,
+            firstName: firstName,
+            lastName: lastName,
+            email: email,
+            phone: phone,
+            riskFlag: riskFlag,
+            hasVaultedCard: hasVaultedCard,
+            lastBookingAt: lastBookingAt,
+            stats: stats,
+            strikeCount: strikeCount,
+            noShowCount: noShowCount,
+            noShowAdminCount: noShowAdminCount,
+            noShowAutoCancelCount: noShowAutoCancelCount,
+            noShowAutoRescheduleCount: noShowAutoRescheduleCount,
+            lateChangeCount: lateChangeCount,
+            lateChangeCancelCount: lateChangeCancelCount,
+            lateChangeRescheduleCount: lateChangeRescheduleCount,
+            noShowFlag: noShowFlag,
+            noShowWaiveNext: noShowWaiveNext,
+            lateChangeWaiveNext: lateChangeWaiveNext,
+            hasConsented: hasConsented,
+            consentFormUrl: consentFormUrl,
+            consentTechnicianReviewedAt: consentTechnicianReviewedAt,
+            reviewRequestPending: nextPending,
+            googleReviewNoted: nextStars != nil,
+            googleReviewStars: nextStars,
+            googleReviewNotedAt: googleReviewNotedAt,
+            reviewRequestLastSentAt: reviewRequestLastSentAt
+        )
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -138,6 +207,12 @@ struct Client: Identifiable, Hashable, Equatable, Sendable {
         case lateChangeWaiveNext
         case hasConsented
         case consentFormUrl
+        case consentTechnicianReviewedAt
+        case reviewRequestPending
+        case googleReviewNoted
+        case googleReviewStars
+        case googleReviewNotedAt
+        case reviewRequestLastSentAt
     }
 
     var displayName: String {
@@ -175,8 +250,25 @@ struct Client: Identifiable, Hashable, Equatable, Sendable {
 
     var lastBookingDate: Date? {
         guard let lastBookingAt else { return nil }
-        return Client.iso8601.date(from: lastBookingAt)
-            ?? Client.iso8601NoFraction.date(from: lastBookingAt)
+        return Client.parseISO8601(lastBookingAt)
+    }
+
+    /// Signed consent PDF hosted on Blob (or any http(s) URL).
+    var stampedConsentPdfURL: URL? {
+        guard let consentFormUrl else { return nil }
+        let trimmed = consentFormUrl.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("https://") || trimmed.hasPrefix("http://") else { return nil }
+        return URL(string: trimmed)
+    }
+
+    /// Stable public URL clients can reopen (`/consent/{id}/document`).
+    var consentDocumentURL: URL? {
+        URL(string: "https://www.sadiemarie.co/consent/\(id)/document")
+    }
+
+    var technicianReviewedDate: Date? {
+        guard let consentTechnicianReviewedAt else { return nil }
+        return Client.parseISO8601(consentTechnicianReviewedAt)
     }
 
     private static let iso8601: ISO8601DateFormatter = {
@@ -190,6 +282,10 @@ struct Client: Identifiable, Hashable, Equatable, Sendable {
         formatter.formatOptions = [.withInternetDateTime]
         return formatter
     }()
+
+    static func parseISO8601(_ raw: String) -> Date? {
+        iso8601.date(from: raw) ?? iso8601NoFraction.date(from: raw)
+    }
 
     private static func formatUS10(_ digits: String) -> String {
         let start = digits.startIndex
@@ -262,7 +358,19 @@ extension Client: Decodable {
             noShowWaiveNext: try container.decodeIfPresent(Bool.self, forKey: .noShowWaiveNext),
             lateChangeWaiveNext: try container.decodeIfPresent(Bool.self, forKey: .lateChangeWaiveNext),
             hasConsented: try container.decodeIfPresent(Bool.self, forKey: .hasConsented),
-            consentFormUrl: try container.decodeIfPresent(String.self, forKey: .consentFormUrl)
+            consentFormUrl: try container.decodeIfPresent(String.self, forKey: .consentFormUrl),
+            consentTechnicianReviewedAt: try container.decodeIfPresent(
+                String.self,
+                forKey: .consentTechnicianReviewedAt
+            ),
+            reviewRequestPending: try container.decodeIfPresent(Bool.self, forKey: .reviewRequestPending),
+            googleReviewNoted: try container.decodeIfPresent(Bool.self, forKey: .googleReviewNoted),
+            googleReviewStars: try container.decodeIfPresent(Int.self, forKey: .googleReviewStars),
+            googleReviewNotedAt: try container.decodeIfPresent(String.self, forKey: .googleReviewNotedAt),
+            reviewRequestLastSentAt: try container.decodeIfPresent(
+                String.self,
+                forKey: .reviewRequestLastSentAt
+            )
         )
     }
 }

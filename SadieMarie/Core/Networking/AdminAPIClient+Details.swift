@@ -56,6 +56,40 @@ extension AdminAPIClient {
         )
     }
 
+    // MARK: - Push devices
+
+    /// `POST /api/admin/push-devices` — upsert this device's APNs token.
+    func registerPushDevice(
+        deviceToken: String,
+        bundleId: String,
+        environment: String
+    ) async throws {
+        let body = try RegisterPushDeviceBody(
+            deviceToken: deviceToken,
+            bundleId: bundleId,
+            environment: environment
+        ).encodedJSON()
+        _ = try await fetch(
+            "push-devices",
+            as: EmptyJSON.self,
+            method: .post,
+            body: body,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+    }
+
+    /// `DELETE /api/admin/push-devices` — remove token on Log Out.
+    func unregisterPushDevice(deviceToken: String) async throws {
+        let body = try UnregisterPushDeviceBody(deviceToken: deviceToken).encodedJSON()
+        _ = try await fetch(
+            "push-devices",
+            as: EmptyJSON.self,
+            method: .delete,
+            body: body,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+    }
+
     // MARK: - Clients
 
     /// `POST /api/admin/clients` — first-touch upsert keyed by phone.
@@ -98,6 +132,32 @@ extension AdminAPIClient {
             cachePolicy: .reloadIgnoringLocalCacheData
         )
         return response.notes.latestNoteText()
+    }
+
+    /// `GET /api/admin/clients/{id}/sms-messages` — outbound texts for this client.
+    func fetchClientSmsMessages(id: String, before: String? = nil) async throws -> ClientSmsMessagesResponse {
+        var query: [URLQueryItem] = []
+        if let before, !before.isEmpty {
+            query.append(URLQueryItem(name: "before", value: before))
+        }
+        let data = try await fetchData(
+            "clients/\(id)/sms-messages",
+            queryItems: query,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        return try Self.decodeJSON(ClientSmsMessagesResponse.self, from: data)
+    }
+
+    /// `POST /api/admin/clients/{id}/sms-messages` — consent or Google-review text.
+    func sendManualClientSms(id: String, kind: ManualClientSmsKind) async throws -> ManualClientSmsResponse {
+        let body = try ManualClientSmsRequest(kind: kind).encodedJSON()
+        return try await fetch(
+            "clients/\(id)/sms-messages",
+            as: ManualClientSmsResponse.self,
+            method: .post,
+            body: body,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
     }
 
     /// `POST /api/admin/clients/{id}/notes` — append a new note row.
@@ -193,6 +253,17 @@ extension AdminAPIClient {
         return response.client
     }
 
+    /// `POST /api/admin/clients/{id}/consent-review` — stamp Reviewed by Technician.
+    func markConsentTechnicianReviewed(id: String) async throws -> Client {
+        let response = try await fetch(
+            "clients/\(id)/consent-review",
+            as: ClientMutationResponse.self,
+            method: .post,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        return response.client
+    }
+
     /// `PATCH /api/admin/clients/{id}` — grant a one-time fee free pass (sends SMS).
     func grantClientFeeWaive(id: String, kind: GrantClientFeeWaivePayload.Kind) async throws -> Client {
         let body = try GrantClientFeeWaivePayload(kind: kind).encodedJSON()
@@ -206,10 +277,40 @@ extension AdminAPIClient {
         return response.client
     }
 
+    /// `PATCH /api/admin/clients/{id}` — Google review SMS + star rating.
+    func patchClientReviewFlags(
+        id: String,
+        reviewRequestPending: Bool? = nil,
+        googleReviewStars: Int? = nil,
+        clearGoogleReviewStars: Bool = false
+    ) async throws -> Client {
+        let body = try PatchClientReviewFlagsPayload(
+            reviewRequestPending: reviewRequestPending,
+            googleReviewStars: googleReviewStars,
+            encodeStarsNull: clearGoogleReviewStars
+        ).encodedJSON()
+        let response = try await fetch(
+            "clients/\(id)",
+            as: ClientMutationResponse.self,
+            method: .patch,
+            body: body,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        return response.client
+    }
+
     // MARK: - Appointment payments
 
-    func startTerminalPayment(appointmentId: String) async throws -> PaymentOperationResult {
-        try await terminalPaymentRequest(appointmentId: appointmentId, suffix: nil, method: .post)
+    func startTerminalPayment(
+        appointmentId: String,
+        request: TerminalStartRequest
+    ) async throws -> PaymentOperationResult {
+        try await terminalPaymentRequest(
+            appointmentId: appointmentId,
+            suffix: nil,
+            method: .post,
+            body: try request.encodedJSON()
+        )
     }
 
     func fetchTerminalPayment(appointmentId: String) async throws -> PaymentOperationResult {
@@ -248,14 +349,15 @@ extension AdminAPIClient {
     private func terminalPaymentRequest(
         appointmentId: String,
         suffix: String?,
-        method: HTTPMethod
+        method: HTTPMethod,
+        body: Data? = nil
     ) async throws -> PaymentOperationResult {
         let endpoint = paymentEndpoint(
             appointmentId: appointmentId,
             resource: "terminal-payment",
             suffix: suffix
         )
-        let raw = try await fetchDataWithStatus(endpoint, method: method)
+        let raw = try await fetchDataWithStatus(endpoint, method: method, body: body)
         do {
             let response = try Self.decodeJSON(TerminalPaymentAPIResponse.self, from: raw.data)
             return PaymentOperationResult(response: response, statusCode: raw.statusCode)
@@ -303,4 +405,22 @@ struct ClientPhotoUploadResponse: Decodable, Sendable {
 /// Decodes `{}` or any empty success body from admin PATCH/POST routes.
 private struct EmptyJSON: Decodable, Sendable {
     nonisolated init(from decoder: Decoder) throws {}
+}
+
+private struct RegisterPushDeviceBody: Encodable, Sendable {
+    let deviceToken: String
+    let bundleId: String
+    let environment: String
+
+    nonisolated func encodedJSON() throws -> Data {
+        try AdminRequestEncoder.encode(self)
+    }
+}
+
+private struct UnregisterPushDeviceBody: Encodable, Sendable {
+    let deviceToken: String
+
+    nonisolated func encodedJSON() throws -> Data {
+        try AdminRequestEncoder.encode(self)
+    }
 }

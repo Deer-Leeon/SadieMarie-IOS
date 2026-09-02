@@ -298,6 +298,113 @@ extension Array where Element == ClientNote {
     }
 }
 
+// MARK: - SMS history
+
+/// One outbound studio text (`GET /api/admin/clients/{id}/sms-messages`).
+struct ClientSmsMessage: Identifiable, Hashable, Sendable {
+    let id: String
+    let createdAt: String
+    let templateKey: String
+    let title: String
+    let body: String
+    let to: String
+
+    nonisolated init(
+        id: String,
+        createdAt: String,
+        templateKey: String,
+        title: String,
+        body: String,
+        to: String
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.templateKey = templateKey
+        self.title = title
+        self.body = body
+        self.to = to
+    }
+}
+
+extension ClientSmsMessage: Decodable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case createdAt
+        case templateKey
+        case title
+        case body
+        case to
+    }
+
+    nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try container.decode(String.self, forKey: .id),
+            createdAt: try container.decode(String.self, forKey: .createdAt),
+            templateKey: try container.decodeIfPresent(String.self, forKey: .templateKey) ?? "",
+            title: try container.decodeIfPresent(String.self, forKey: .title) ?? "Sent text",
+            body: try container.decode(String.self, forKey: .body),
+            to: try container.decodeIfPresent(String.self, forKey: .to) ?? ""
+        )
+    }
+}
+
+/// Manual send from the client profile (`POST /api/admin/clients/{id}/sms-messages`).
+enum ManualClientSmsKind: String, Encodable, Sendable {
+    case consentRequest = "consent_request"
+    case reviewRequest = "review_request"
+}
+
+struct ManualClientSmsRequest: Encodable, Sendable {
+    let kind: ManualClientSmsKind
+
+    nonisolated func encodedJSON() throws -> Data {
+        try AdminRequestEncoder.encode(self)
+    }
+}
+
+struct ManualClientSmsResponse: Decodable, Sendable {
+    let ok: Bool?
+    let kind: String?
+    let smsSid: String?
+    let error: String?
+    let message: String?
+}
+
+/// `GET /api/admin/clients/{id}/sms-messages`.
+struct ClientSmsMessagesResponse: Sendable {
+    let phone: String?
+    let messages: [ClientSmsMessage]
+    let nextBefore: String?
+
+    nonisolated init(
+        phone: String?,
+        messages: [ClientSmsMessage],
+        nextBefore: String?
+    ) {
+        self.phone = phone
+        self.messages = messages
+        self.nextBefore = nextBefore
+    }
+}
+
+extension ClientSmsMessagesResponse: Decodable {
+    private enum CodingKeys: String, CodingKey {
+        case phone
+        case messages
+        case nextBefore
+    }
+
+    nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            phone: try container.decodeIfPresent(String.self, forKey: .phone),
+            messages: try container.decodeIfPresent([ClientSmsMessage].self, forKey: .messages) ?? [],
+            nextBefore: try container.decodeIfPresent(String.self, forKey: .nextBefore)
+        )
+    }
+}
+
 struct ClientNotesPatchBody: Encodable, Sendable {
     let notes: String
 
@@ -390,6 +497,32 @@ struct ClientIdentityPayload: Encodable, Sendable {
         case firstName
         case lastName
         case email
+    }
+}
+
+/// `PATCH /api/admin/clients/{id}` — Google review SMS + star rating.
+struct PatchClientReviewFlagsPayload: Encodable, Sendable {
+    var reviewRequestPending: Bool?
+    var googleReviewStars: Int?
+    var encodeStarsNull: Bool = false
+
+    nonisolated func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(reviewRequestPending, forKey: .reviewRequestPending)
+        if encodeStarsNull {
+            try container.encodeNil(forKey: .googleReviewStars)
+        } else {
+            try container.encodeIfPresent(googleReviewStars, forKey: .googleReviewStars)
+        }
+    }
+
+    nonisolated func encodedJSON() throws -> Data {
+        try AdminRequestEncoder.encode(self)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case reviewRequestPending
+        case googleReviewStars
     }
 }
 

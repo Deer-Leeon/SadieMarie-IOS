@@ -10,6 +10,8 @@ struct ClientProfileView: View {
     /// Soft CRM patches (e.g. clearing the no-show flag) that should not
     /// dismiss parent sheets — calendar / directory update in place.
     var onClientUpdated: ((Client) -> Void)? = nil
+    /// False when this view is already pushed on a `NavigationStack` (Clients tab).
+    var embedInNavigationStack: Bool = true
 
     @Environment(AppState.self) private var appState
     @State private var viewModel: ClientProfileViewModel
@@ -18,7 +20,14 @@ struct ClientProfileView: View {
     @State private var historyMutated = false
     @State private var showManualBooking = false
     @State private var showClearNoShowFlagConfirm = false
+    @State private var showPastAppointments = false
+    @State private var showSmsHistory = false
+    @State private var sendSmsKind: ManualClientSmsKind?
     @State private var grantWaiveKind: GrantClientFeeWaivePayload.Kind?
+    @State private var confirmConsentReview = false
+    @State private var showGoogleReviewEditor = false
+    @State private var draftReviewPending = false
+    @State private var draftGoogleReviewStars: Int? = nil
 
     init(
         entry: ClientProfileEntry,
@@ -26,7 +35,8 @@ struct ClientProfileView: View {
         onBack: @escaping () -> Void,
         onClose: @escaping () -> Void,
         onMutated: @escaping () -> Void,
-        onClientUpdated: ((Client) -> Void)? = nil
+        onClientUpdated: ((Client) -> Void)? = nil,
+        embedInNavigationStack: Bool = true
     ) {
         self.entry = entry
         self.backLabel = backLabel
@@ -34,12 +44,70 @@ struct ClientProfileView: View {
         self.onClose = onClose
         self.onMutated = onMutated
         self.onClientUpdated = onClientUpdated
+        self.embedInNavigationStack = embedInNavigationStack
         _viewModel = State(initialValue: ClientProfileViewModel(entry: entry))
     }
 
     var body: some View {
-        NavigationStack {
+        Group {
+            if embedInNavigationStack {
+                NavigationStack {
+                    profileChrome
+                }
+            } else {
+                profileChrome
+            }
+        }
+        .navigationBarBackButtonHidden(true)
+        .tint(AdminTheme.stone900)
+        .preferredColorScheme(.light)
+        .overlay {
             ZStack {
+                if showPastAppointments {
+                    PastAppointmentsPopup(
+                        appointments: pastHistory,
+                        onSelectAppointment: { selectedAppointment = $0 },
+                        onClose: { showPastAppointments = false }
+                    )
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                }
+                if showSmsHistory, let client = viewModel.client {
+                    ClientSmsHistoryPopup(
+                        clientId: client.id,
+                        clientName: viewModel.displayName,
+                        clientPhone: client.formattedPhone,
+                        onClose: { showSmsHistory = false }
+                    )
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                }
+                if let sendSmsKind, let client = viewModel.client {
+                    ClientSendSmsConfirmPopup(
+                        kind: sendSmsKind,
+                        clientId: client.id,
+                        clientName: viewModel.displayName,
+                        clientPhone: client.formattedPhone,
+                        onClose: { self.sendSmsKind = nil },
+                        onSent: { kind in
+                            if kind == .reviewRequest {
+                                draftReviewPending = false
+                                viewModel.noteManualReviewSmsSent(onUpdated: onClientUpdated)
+                            }
+                        }
+                    )
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                }
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: showPastAppointments)
+        .animation(.easeInOut(duration: 0.2), value: showSmsHistory)
+        .animation(.easeInOut(duration: 0.2), value: sendSmsKind != nil)
+    }
+
+    private var profileChrome: some View {
+        ZStack {
                 AdminTheme.cream.ignoresSafeArea()
 
                 if viewModel.isBootstrapping {
@@ -55,6 +123,8 @@ struct ClientProfileView: View {
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
+            .navigationBarBackButtonHidden(true)
+            .toolbar(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
@@ -127,9 +197,20 @@ struct ClientProfileView: View {
                     }
                 )
             }
-        }
-        .tint(AdminTheme.stone900)
-        .preferredColorScheme(.light)
+            .sheet(isPresented: $showGoogleReviewEditor) {
+                googleReviewEditorSheet
+                    .presentationDetents([.medium])
+                    .presentationDragIndicator(.visible)
+                    .presentationBackground(AdminTheme.cream)
+                    .onAppear {
+                        syncGoogleReviewDrafts()
+                    }
+                    .onChange(of: viewModel.reviewFlagsError) { _, error in
+                        if error != nil {
+                            syncGoogleReviewDrafts()
+                        }
+                    }
+            }
     }
 
     // MARK: - Overview
@@ -145,6 +226,7 @@ struct ClientProfileView: View {
                 bookAppointmentButton
                 crmBar
                 feeWaivePassesBar
+                googleReviewBar
                 if viewModel.showsNoShowFlag {
                     noShowFlagBanner
                 }
@@ -152,6 +234,7 @@ struct ClientProfileView: View {
                 galleryCard
                 notesCard
                 historySection
+                smsHistoryButton
             }
             .padding(.horizontal, AdminTheme.Spacing.listHorizontal)
             .padding(.vertical, 16)
@@ -398,6 +481,185 @@ struct ClientProfileView: View {
         }
     }
 
+    private var googleReviewBar: some View {
+        AdminDetailCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Button {
+                    showGoogleReviewEditor = true
+                } label: {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(alignment: .center, spacing: 8) {
+                            Text("GOOGLE REVIEWS")
+                                .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
+                                .tracking(1.6)
+                                .foregroundStyle(AdminTheme.stone500)
+                            GoogleReviewStarsView(
+                                rating: viewModel.client?.googleReviewStars,
+                                size: 13
+                            )
+                            Spacer(minLength: 8)
+                            Text("Edit")
+                                .font(AdminTheme.fontAdminSans(size: 13, weight: .medium))
+                                .foregroundStyle(AdminTheme.stone900)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(AdminTheme.stone500)
+                        }
+
+                        googleReviewStatusRow(
+                            title: "Ask after next visit",
+                            isOn: viewModel.client?.reviewRequestPending ?? false
+                        )
+
+                        if let error = viewModel.reviewFlagsError {
+                            Text(error)
+                                .font(AdminTheme.fontAdminSans(size: 12))
+                                .foregroundStyle(AdminTheme.rose600)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens Google review settings")
+
+                sendSmsRow(title: "Send review text") {
+                    sendSmsKind = .reviewRequest
+                }
+            }
+        }
+    }
+
+    private func googleReviewStatusRow(title: String, isOn: Bool) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text(title)
+                .font(AdminTheme.fontAdminSans(size: 14, weight: .medium))
+                .foregroundStyle(AdminTheme.stone900)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            googleReviewStatusPill(isOn: isOn)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title), \(isOn ? "on" : "off")")
+    }
+
+    private func googleReviewStatusPill(isOn: Bool) -> some View {
+        Text(isOn ? "ON" : "OFF")
+            .font(AdminTheme.fontAdminSans(size: 10, weight: .semibold))
+            .tracking(1.2)
+            .foregroundStyle(isOn ? AdminTheme.confirmedText : AdminTheme.stone600)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(isOn ? AdminTheme.confirmedBackground : AdminTheme.stone100)
+            .overlay(
+                Capsule()
+                    .stroke(isOn ? AdminTheme.confirmedBorder : AdminTheme.stone300, lineWidth: 1)
+            )
+            .clipShape(Capsule())
+    }
+
+    private var googleReviewEditorSheet: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("Changes save as soon as you tap.")
+                    .font(AdminTheme.fontAdminSans(size: 13))
+                    .foregroundStyle(AdminTheme.stone600)
+
+                Toggle(isOn: reviewRequestPendingBinding) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Ask for a Google review after their next visit")
+                            .font(AdminTheme.fontAdminSans(size: 15, weight: .medium))
+                            .foregroundStyle(AdminTheme.stone900)
+                        Text("Turns off automatically after the text is sent.")
+                            .font(AdminTheme.fontAdminSans(size: 12))
+                            .foregroundStyle(AdminTheme.stone700)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .toggleStyle(AdminSwitchToggleStyle())
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Google rating")
+                        .font(AdminTheme.fontAdminSans(size: 15, weight: .medium))
+                        .foregroundStyle(AdminTheme.stone900)
+                    Text("Tap how many stars they left. Tap the same star again to clear.")
+                        .font(AdminTheme.fontAdminSans(size: 12))
+                        .foregroundStyle(AdminTheme.stone700)
+                        .fixedSize(horizontal: false, vertical: true)
+                    GoogleReviewStarsView(
+                        rating: draftGoogleReviewStars,
+                        size: 28,
+                        interactive: true,
+                        onSelect: applyGoogleReviewStars
+                    )
+                    .padding(.top, 4)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.white)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(AdminTheme.stone200, lineWidth: 1)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                if let error = viewModel.reviewFlagsError {
+                    Text(error)
+                        .font(AdminTheme.fontAdminSans(size: 12))
+                        .foregroundStyle(AdminTheme.rose600)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(AdminTheme.cream)
+            .navigationTitle("Google reviews")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        showGoogleReviewEditor = false
+                    }
+                    .font(AdminTheme.fontAdminSans(size: 16, weight: .semibold))
+                    .foregroundStyle(AdminTheme.stone900)
+                }
+            }
+        }
+        .preferredColorScheme(.light)
+    }
+
+    private var reviewRequestPendingBinding: Binding<Bool> {
+        Binding(
+            get: { draftReviewPending },
+            set: { newValue in
+                draftReviewPending = newValue
+                viewModel.applyReviewFlagChange(
+                    reviewRequestPending: newValue,
+                    onUpdated: onClientUpdated
+                )
+            }
+        )
+    }
+
+    private func applyGoogleReviewStars(_ next: Int?) {
+        draftGoogleReviewStars = next
+        if next != nil {
+            draftReviewPending = false
+        }
+        viewModel.applyReviewFlagChange(
+            googleReviewStars: next,
+            clearStars: next == nil,
+            onUpdated: onClientUpdated
+        )
+    }
+
+    private func syncGoogleReviewDrafts() {
+        draftReviewPending = viewModel.client?.reviewRequestPending ?? false
+        draftGoogleReviewStars = viewModel.client?.googleReviewStars
+    }
+
     private var grantConfirmTitle: String {
         switch grantWaiveKind {
         case .lateChange:
@@ -555,30 +817,199 @@ struct ClientProfileView: View {
 
     private var consentCard: some View {
         AdminDetailCard {
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Consent form")
-                        .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
-                        .foregroundStyle(AdminTheme.stone700)
-                    Text(consentStatusLabel)
-                        .font(AdminTheme.fontAdminSans(size: 15, weight: .medium))
-                        .foregroundStyle(consentStatusColor)
-                }
-                Spacer()
-                if let urlString = viewModel.client?.consentFormUrl,
-                   let url = URL(string: urlString) {
-                    Link(destination: url) {
-                        Text("View")
-                            .font(AdminTheme.fontAdminSans(size: 13, weight: .medium))
-                            .foregroundStyle(AdminTheme.stone900)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(AdminTheme.stone100)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Consent form")
+                            .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
+                            .foregroundStyle(AdminTheme.stone700)
+                        Text(consentStatusLabel)
+                            .font(AdminTheme.fontAdminSans(size: 15, weight: .medium))
+                            .foregroundStyle(consentStatusColor)
                     }
+                    Spacer()
+                    if let url = stampedConsentURL {
+                        Link(destination: url) {
+                            Text(viewModel.client?.stampedConsentPdfURL != nil ? "View signed PDF" : "View")
+                                .font(AdminTheme.fontAdminSans(size: 13, weight: .medium))
+                                .foregroundStyle(AdminTheme.stone900)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(AdminTheme.stone100)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
+                }
+
+                if viewModel.client?.hasConsented == true,
+                   viewModel.client?.stampedConsentPdfURL != nil {
+                    Divider().overlay(AdminTheme.stone200)
+                    technicianReviewSection
+                }
+
+                if let documentURL = viewModel.client?.consentDocumentURL {
+                    Divider().overlay(AdminTheme.stone200)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Permanent client link")
+                            .font(AdminTheme.fontAdminSans(size: 11, weight: .medium))
+                            .foregroundStyle(AdminTheme.stone500)
+                            .textCase(.uppercase)
+                            .tracking(1.4)
+                        Text("Clients can reopen their signed form anytime at this URL.")
+                            .font(AdminTheme.fontAdminSans(size: 12))
+                            .foregroundStyle(AdminTheme.stone600)
+                        Link(destination: documentURL) {
+                            Text(documentURL.absoluteString)
+                                .font(AdminTheme.fontAdminSans(size: 12))
+                                .foregroundStyle(AdminTheme.stone900)
+                                .underline()
+                                .lineLimit(2)
+                        }
+                    }
+                }
+
+                sendSmsRow(title: "Send consent text") {
+                    sendSmsKind = .consentRequest
                 }
             }
         }
+    }
+
+    private func sendSmsRow(title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(AdminTheme.fontAdminSans(size: 13, weight: .medium))
+                .foregroundStyle(AdminTheme.stone900)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(AdminTheme.stone100)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(AdminTheme.stone200, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var technicianReviewSection: some View {
+        if let reviewedAt = viewModel.client?.technicianReviewedDate {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(AdminTheme.confirmedText)
+                    Text("Reviewed by technician · \(Self.reviewedDateFormatter.string(from: reviewedAt))")
+                        .font(AdminTheme.fontAdminSans(size: 13))
+                        .foregroundStyle(AdminTheme.stone600)
+                }
+
+                Button {
+                    Task { await stampConsentReview() }
+                } label: {
+                    HStack(spacing: 6) {
+                        if viewModel.isMarkingConsentReviewed {
+                            ProgressView().controlSize(.mini)
+                        }
+                        Text(viewModel.isMarkingConsentReviewed ? "Updating PDF…" : "Re-apply check on PDF")
+                    }
+                    .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
+                    .foregroundStyle(AdminTheme.stone500)
+                }
+                .buttonStyle(.plain)
+                .disabled(viewModel.isMarkingConsentReviewed)
+
+                if let error = viewModel.consentReviewError {
+                    Text(error)
+                        .font(AdminTheme.fontAdminSans(size: 12))
+                        .foregroundStyle(Color.semanticRed)
+                }
+            }
+        } else if confirmConsentReview {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Mark this consent PDF as reviewed by the technician? This checks the box on the PDF and saves a new copy to the client profile.")
+                    .font(AdminTheme.fontAdminSans(size: 14))
+                    .foregroundStyle(AdminTheme.stone700)
+
+                if let error = viewModel.consentReviewError {
+                    Text(error)
+                        .font(AdminTheme.fontAdminSans(size: 12))
+                        .foregroundStyle(Color.semanticRed)
+                }
+
+                HStack {
+                    Spacer()
+                    Button("Cancel") {
+                        confirmConsentReview = false
+                        viewModel.clearConsentReviewError()
+                    }
+                    .font(AdminTheme.fontAdminSans(size: 13, weight: .medium))
+                    .foregroundStyle(AdminTheme.stone700)
+                    .disabled(viewModel.isMarkingConsentReviewed)
+
+                    Button {
+                        Task { await stampConsentReview() }
+                    } label: {
+                        HStack(spacing: 6) {
+                            if viewModel.isMarkingConsentReviewed {
+                                ProgressView().controlSize(.mini)
+                            }
+                            Text(viewModel.isMarkingConsentReviewed ? "Saving…" : "Confirm review")
+                        }
+                        .font(AdminTheme.fontAdminSans(size: 13, weight: .medium))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(AdminTheme.stone900)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(viewModel.isMarkingConsentReviewed)
+                }
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                Button {
+                    confirmConsentReview = true
+                    viewModel.clearConsentReviewError()
+                } label: {
+                    Text("Mark reviewed by technician")
+                        .font(AdminTheme.fontAdminSans(size: 13, weight: .medium))
+                        .foregroundStyle(AdminTheme.stone900)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(AdminTheme.stone100)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(AdminTheme.stone200, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+
+                if let error = viewModel.consentReviewError {
+                    Text(error)
+                        .font(AdminTheme.fontAdminSans(size: 12))
+                        .foregroundStyle(Color.semanticRed)
+                }
+            }
+        }
+    }
+
+    private var stampedConsentURL: URL? {
+        guard let client = viewModel.client else { return nil }
+        if let pdf = client.stampedConsentPdfURL {
+            var components = URLComponents(url: pdf, resolvingAgainstBaseURL: false)
+            var items = components?.queryItems ?? []
+            let cache = client.consentTechnicianReviewedAt.flatMap { Client.parseISO8601($0)?.timeIntervalSince1970 }
+            items.append(URLQueryItem(name: "v", value: cache.map { String(Int($0 * 1000)) } ?? "signed"))
+            components?.queryItems = items
+            return components?.url ?? pdf
+        }
+        return client.consentDocumentURL
     }
 
     private var consentStatusLabel: String {
@@ -592,6 +1023,25 @@ struct ClientProfileView: View {
         viewModel.client?.hasConsented == true
             ? AdminTheme.confirmedText
             : AdminTheme.stone500
+    }
+
+    private static let reviewedDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "America/Denver")
+        formatter.dateFormat = "MMM d, yyyy"
+        return formatter
+    }()
+
+    @MainActor
+    private func stampConsentReview() async {
+        let ok = await viewModel.markConsentTechnicianReviewed()
+        if ok {
+            confirmConsentReview = false
+            if let client = viewModel.client {
+                onClientUpdated?(client)
+            }
+        }
     }
 
     private var galleryCard: some View {
@@ -700,17 +1150,65 @@ struct ClientProfileView: View {
                     .font(AdminTheme.fontAdminSans(size: 13))
                     .foregroundStyle(Color.semanticRed)
             } else if viewModel.history.isEmpty {
-                Text("No past bookings yet.")
+                Text("No appointments on file yet.")
                     .font(AdminTheme.fontAdminSans(size: 14))
                     .foregroundStyle(AdminTheme.stone700)
                     .padding(.vertical, 8)
             } else {
-                BookingsDayGroupedList(
-                    appointments: viewModel.history,
-                    onSelectAppointment: { selectedAppointment = $0 }
-                )
+                if !pastHistory.isEmpty {
+                    ShowPastAppointmentsButton {
+                        showPastAppointments = true
+                    }
+                }
+
+                if upcomingHistory.isEmpty {
+                    Text("No upcoming bookings")
+                        .font(AdminTheme.fontAdminSans(size: 13, weight: .medium))
+                        .foregroundStyle(AdminTheme.stone500)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                } else {
+                    BookingsDayGroupedList(
+                        appointments: upcomingHistory,
+                        onSelectAppointment: { selectedAppointment = $0 }
+                    )
+                }
             }
         }
+    }
+
+    private var smsHistoryButton: some View {
+        Button {
+            showSmsHistory = true
+        } label: {
+            AdminDetailCard {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Text history")
+                            .font(AdminTheme.fontAdminSans(size: 14, weight: .medium))
+                            .foregroundStyle(AdminTheme.stone900)
+                        Text("Every text sent to this client, and the number it went to")
+                            .font(AdminTheme.fontAdminSans(size: 12))
+                            .foregroundStyle(AdminTheme.stone700)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(AdminTheme.stone500)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Open text history")
+        .disabled(viewModel.client == nil)
+    }
+
+    private var upcomingHistory: [Appointment] {
+        viewModel.history.filter { BookingDisplay.isUpcoming($0) }
+    }
+
+    private var pastHistory: [Appointment] {
+        viewModel.history.filter { !BookingDisplay.isUpcoming($0) }
     }
 
     // MARK: - Bootstrap email
@@ -731,7 +1229,12 @@ struct ClientProfileView: View {
                         .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
                         .foregroundStyle(AdminTheme.stone700)
 
-                    TextField("jane@example.com", text: $viewModel.bootstrapEmailDraft)
+                    TextField(
+                        "Email",
+                        text: $viewModel.bootstrapEmailDraft,
+                        prompt: Text(verbatim: "jane@example.com")
+                            .foregroundStyle(Color(uiColor: .placeholderText))
+                    )
                         .font(AdminTheme.fontAdminSans(size: 15))
                         .keyboardType(.emailAddress)
                         .textInputAutocapitalization(.never)
@@ -814,6 +1317,80 @@ struct ClientProfileView: View {
             Button("Back", action: onBack)
                 .font(AdminTheme.fontAdminSans(size: 15, weight: .medium))
                 .foregroundStyle(AdminTheme.stone900)
+        }
+    }
+}
+
+private struct GoogleReviewStarsView: View {
+    let rating: Int?
+    var size: CGFloat = 14
+    var interactive = false
+    var onSelect: ((Int?) -> Void)? = nil
+
+    private var count: Int { rating ?? 0 }
+    private let starYellow = Color(red: 244 / 255, green: 180 / 255, blue: 0 / 255)
+
+    var body: some View {
+        HStack(spacing: size < 18 ? 2 : 6) {
+            ForEach(1...5, id: \.self) { n in
+                let filled = n <= count
+                let star = Image(systemName: filled ? "star.fill" : "star")
+                    .font(.system(size: size, weight: .medium))
+                    .foregroundStyle(filled ? starYellow : AdminTheme.stone300)
+
+                if interactive {
+                    Button {
+                        onSelect?(count == n ? nil : n)
+                    } label: {
+                        star
+                            .padding(4)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(n) star\(n == 1 ? "" : "s")")
+                    .accessibilityAddTraits(count == n ? .isSelected : [])
+                } else {
+                    star
+                }
+            }
+        }
+        .accessibilityElement(children: interactive ? .contain : .ignore)
+        .accessibilityLabel(
+            count > 0 ? "\(count) of 5 Google stars" : "No Google rating recorded"
+        )
+    }
+}
+
+/// High-contrast switch so off-state tracks stay visible on cream/white cards.
+private struct AdminSwitchToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            configuration.label
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button {
+                configuration.isOn.toggle()
+            } label: {
+                Capsule()
+                    .fill(configuration.isOn ? AdminTheme.stone900 : AdminTheme.stone300)
+                    .frame(width: 51, height: 31)
+                    .overlay(alignment: configuration.isOn ? .trailing : .leading) {
+                        Circle()
+                            .fill(Color.white)
+                            .frame(width: 27, height: 27)
+                            .shadow(color: .black.opacity(0.18), radius: 1.5, y: 1)
+                            .padding(.horizontal, 2)
+                    }
+                    .overlay(
+                        Capsule()
+                            .stroke(
+                                configuration.isOn ? AdminTheme.stone900 : AdminTheme.stone500,
+                                lineWidth: 1
+                            )
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(.isToggle)
+            .accessibilityValue(configuration.isOn ? "On" : "Off")
+            .animation(.easeInOut(duration: 0.15), value: configuration.isOn)
         }
     }
 }

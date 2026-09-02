@@ -302,6 +302,112 @@ final class ClientProfileViewModel {
         }
     }
 
+    private(set) var isPatchingReviewFlags = false
+    private(set) var reviewFlagsError: String?
+    private var reviewFlagsSaveGeneration = 0
+
+    func applyReviewFlagChange(
+        reviewRequestPending: Bool? = nil,
+        googleReviewStars: Int? = nil,
+        clearStars: Bool = false,
+        onUpdated: ((Client) -> Void)? = nil
+    ) {
+        guard let current = client else { return }
+
+        reviewFlagsError = nil
+        let snapshot = current
+        let optimistic = current.withReviewFlags(
+            pending: reviewRequestPending,
+            stars: googleReviewStars,
+            clearStars: clearStars
+        )
+        client = optimistic
+        onUpdated?(optimistic)
+
+        reviewFlagsSaveGeneration += 1
+        let generation = reviewFlagsSaveGeneration
+        Task {
+            await persistReviewFlags(
+                reviewRequestPending: reviewRequestPending,
+                googleReviewStars: googleReviewStars,
+                clearStars: clearStars,
+                generation: generation,
+                snapshot: snapshot,
+                onUpdated: onUpdated
+            )
+        }
+    }
+
+    private func persistReviewFlags(
+        reviewRequestPending: Bool?,
+        googleReviewStars: Int?,
+        clearStars: Bool,
+        generation: Int,
+        snapshot: Client,
+        onUpdated: ((Client) -> Void)?
+    ) async {
+        let clientId = snapshot.id
+        isPatchingReviewFlags = true
+        defer {
+            if generation == reviewFlagsSaveGeneration {
+                isPatchingReviewFlags = false
+            }
+        }
+
+        do {
+            let updated = try await AdminAPIClient.shared.patchClientReviewFlags(
+                id: clientId,
+                reviewRequestPending: reviewRequestPending,
+                googleReviewStars: googleReviewStars,
+                clearGoogleReviewStars: clearStars
+            )
+            guard generation == reviewFlagsSaveGeneration else { return }
+            let merged = mergeClient(updated)
+            client = merged
+            onUpdated?(merged)
+        } catch {
+            guard generation == reviewFlagsSaveGeneration else { return }
+            client = snapshot
+            onUpdated?(snapshot)
+            reviewFlagsError =
+                (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    func noteManualReviewSmsSent(onUpdated: ((Client) -> Void)? = nil) {
+        guard let current = client else { return }
+        let next = current.withReviewFlags(pending: false)
+        client = next
+        onUpdated?(next)
+    }
+
+    private(set) var isMarkingConsentReviewed = false
+    private(set) var consentReviewError: String?
+
+    func clearConsentReviewError() {
+        consentReviewError = nil
+    }
+
+    func markConsentTechnicianReviewed() async -> Bool {
+        guard let clientId = client?.id else { return false }
+
+        isMarkingConsentReviewed = true
+        consentReviewError = nil
+        defer { isMarkingConsentReviewed = false }
+
+        do {
+            let updated = try await AdminAPIClient.shared.markConsentTechnicianReviewed(id: clientId)
+            client = mergeClient(updated)
+            return true
+        } catch {
+            consentReviewError = AdminAPIResponseParser.userFacingMessage(
+                from: error,
+                fallback: "Couldn’t stamp the consent PDF. Try again."
+            )
+            return false
+        }
+    }
+
     // MARK: - Private
 
     private func bootstrapClient(from appointment: Appointment, email: String?) async {
@@ -379,7 +485,13 @@ final class ClientProfileViewModel {
                     noShowWaiveNext: historyResponse.crmStats.noShowWaiveNext,
                     lateChangeWaiveNext: historyResponse.crmStats.lateChangeWaiveNext,
                     hasConsented: existing.hasConsented,
-                    consentFormUrl: existing.consentFormUrl
+                    consentFormUrl: existing.consentFormUrl,
+                    consentTechnicianReviewedAt: existing.consentTechnicianReviewedAt,
+                    reviewRequestPending: existing.reviewRequestPending,
+                    googleReviewNoted: existing.googleReviewNoted,
+                    googleReviewStars: existing.googleReviewStars,
+                    googleReviewNotedAt: existing.googleReviewNotedAt,
+                    reviewRequestLastSentAt: existing.reviewRequestLastSentAt
                 )
             }
         } catch {
@@ -423,7 +535,17 @@ final class ClientProfileViewModel {
             noShowWaiveNext: updated.noShowWaiveNext ?? client?.noShowWaiveNext ?? crmStats.noShowWaiveNext,
             lateChangeWaiveNext: updated.lateChangeWaiveNext ?? client?.lateChangeWaiveNext ?? crmStats.lateChangeWaiveNext,
             hasConsented: updated.hasConsented ?? client?.hasConsented,
-            consentFormUrl: updated.consentFormUrl ?? client?.consentFormUrl
+            consentFormUrl: updated.consentFormUrl ?? client?.consentFormUrl,
+            consentTechnicianReviewedAt: updated.consentTechnicianReviewedAt
+                ?? client?.consentTechnicianReviewedAt,
+            reviewRequestPending: updated.reviewRequestPending ?? client?.reviewRequestPending,
+            googleReviewNoted: updated.googleReviewNoted ?? (updated.googleReviewStars != nil),
+            googleReviewStars: updated.googleReviewStars,
+            googleReviewNotedAt: updated.googleReviewStars != nil
+                ? (updated.googleReviewNotedAt ?? client?.googleReviewNotedAt)
+                : updated.googleReviewNotedAt,
+            reviewRequestLastSentAt: updated.reviewRequestLastSentAt
+                ?? client?.reviewRequestLastSentAt
         )
     }
 }
