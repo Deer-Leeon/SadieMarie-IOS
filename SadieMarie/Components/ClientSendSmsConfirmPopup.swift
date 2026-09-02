@@ -207,10 +207,27 @@ struct ClientSendSmsConfirmPopup: View {
             didSend = true
             onSent(kind)
         } catch {
-            errorMessage = AdminAPIResponseParser.userFacingMessage(
-                from: error,
-                fallback: "Could not send this text."
-            )
+            errorMessage = Self.sendErrorMessage(error)
         }
+    }
+
+    private static func sendErrorMessage(_ error: Error) -> String {
+        if let api = error as? AdminAPIError {
+            switch api {
+            case .notFound:
+                return "This send is not on the live site yet. After it is deployed, try again."
+            case .server(let status, let body) where status == 404 || status == 405:
+                return AdminAPIResponseParser.message(
+                    from: body,
+                    fallback: "This send is not on the live site yet. After it is deployed, try again."
+                )
+            default:
+                break
+            }
+        }
+        return AdminAPIResponseParser.userFacingMessage(
+            from: error,
+            fallback: "Could not send this text."
+        )
     }
 }

@@ -522,8 +522,10 @@ struct ClientProfileView: View {
                 .buttonStyle(.plain)
                 .accessibilityHint("Opens Google review settings")
 
-                sendSmsRow(title: "Send review text") {
-                    sendSmsKind = .reviewRequest
+                if recordedGoogleReviewStars == nil {
+                    sendSmsRow(title: "Send review text") {
+                        sendSmsKind = .reviewRequest
+                    }
                 }
             }
         }
@@ -868,11 +870,19 @@ struct ClientProfileView: View {
                     }
                 }
 
-                sendSmsRow(title: "Send consent text") {
-                    sendSmsKind = .consentRequest
+                if viewModel.client?.hasConsented != true {
+                    sendSmsRow(title: "Send consent text") {
+                        sendSmsKind = .consentRequest
+                    }
                 }
             }
         }
+    }
+
+    private var recordedGoogleReviewStars: Int? {
+        let stars = draftGoogleReviewStars ?? viewModel.client?.googleReviewStars
+        guard let stars, stars >= 1 else { return nil }
+        return stars
     }
 
     private func sendSmsRow(title: String, action: @escaping () -> Void) -> some View {
