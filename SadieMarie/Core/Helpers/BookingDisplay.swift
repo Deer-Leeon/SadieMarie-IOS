@@ -128,6 +128,31 @@ enum BookingDisplay {
         }
     }
 
+    /// Client "Additional notes" only. Hides catalogue copy that Cal
+    /// previously stored as booking notes.
+    static func clientBookingNotes(for appointment: Appointment) -> String? {
+        let notes = appointment.bookingNotes?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !notes.isEmpty else { return nil }
+        let description = appointment.serviceDescription?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !description.isEmpty else { return notes }
+        let compactNotes = notes.replacingOccurrences(
+            of: #"\s+"#,
+            with: " ",
+            options: .regularExpression
+        )
+        let compactDescription = description.replacingOccurrences(
+            of: #"\s+"#,
+            with: " ",
+            options: .regularExpression
+        )
+        if compactNotes.caseInsensitiveCompare(compactDescription) == .orderedSame {
+            return nil
+        }
+        return notes
+    }
+
     /// Closed bookings that should not be rescheduled or status-patched again
     /// (matches web `isAppointmentReadOnly`).
     static func isReadOnly(_ apt: Appointment) -> Bool {
@@ -154,7 +179,32 @@ enum BookingDisplay {
     }()
 
     static func iso8601Date(from string: String) -> Date? {
-        iso8601WithFractional.date(from: string) ?? iso8601Standard.date(from: string)
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let date = iso8601WithFractional.date(from: trimmed)
+            ?? iso8601Standard.date(from: trimmed) {
+            return date
+        }
+        return postgresTimestampDate(from: trimmed)
+    }
+
+    /// Postgres `timestamptz::text` is often `2026-09-03 15:15:00+00`.
+    private static func postgresTimestampDate(from string: String) -> Date? {
+        var normalized = string
+        if let space = normalized.firstIndex(of: " "), !normalized.contains("T") {
+            normalized.replaceSubrange(space...space, with: "T")
+        }
+        if normalized.hasSuffix("+00") || normalized.hasSuffix("-00") {
+            normalized = String(normalized.dropLast(3)) + "Z"
+        } else if let match = normalized.range(
+            of: #"[+-]\d{2}$"#,
+            options: .regularExpression
+        ) {
+            let offset = String(normalized[match])
+            normalized = String(normalized[..<match.lowerBound]) + offset + ":00"
+        }
+        return iso8601WithFractional.date(from: normalized)
+            ?? iso8601Standard.date(from: normalized)
     }
 
     // MARK: - Formatted strings (list UI)

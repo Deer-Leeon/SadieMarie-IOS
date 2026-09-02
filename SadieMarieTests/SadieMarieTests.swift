@@ -797,10 +797,27 @@ final class SadieMarieTests: XCTestCase {
             clientLastName: "Doe",
             clientName: "Jane Doe",
             clientEmail: "jane@example.com",
-            clientPhone: "18015551234"
+            clientPhone: "18015551234",
+            bookingNotes: nil
         )
         let json = try JSONSerialization.jsonObject(with: payload.encodedJSON()) as? [String: Any]
         XCTAssertEqual(json?["clientEmail"] as? String, "jane@example.com")
+        XCTAssertNil(json?["bookingNotes"])
+    }
+
+    func testManualBookingCreatePayloadIncludesBookingNotes() throws {
+        let payload = ManualBookingCreatePayload(
+            eventTypeId: 123,
+            start: "2026-06-01T15:00:00",
+            clientFirstName: "Jane",
+            clientLastName: "Doe",
+            clientName: "Jane Doe",
+            clientEmail: "jane@example.com",
+            clientPhone: "18015551234",
+            bookingNotes: "First time, extra gentle"
+        )
+        let json = try JSONSerialization.jsonObject(with: payload.encodedJSON()) as? [String: Any]
+        XCTAssertEqual(json?["bookingNotes"] as? String, "First time, extra gentle")
     }
 
     func testBootstrapClientBodyAlwaysIncludesEmail() throws {

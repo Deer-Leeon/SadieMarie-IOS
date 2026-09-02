@@ -28,7 +28,12 @@ enum SameDayUnsettledMatching {
         _ remote: [SameDayUnsettledVisit],
         local: [SameDayUnsettledVisit]
     ) -> [SameDayUnsettledVisit] {
-        remote.isEmpty ? local : remote
+        guard !remote.isEmpty else { return local }
+        let localById = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
+        return remote.map { visit in
+            guard let fallback = localById[visit.id] else { return visit }
+            return visit.replacingUnparseableTimes(from: fallback)
+        }
     }
 
     private static func isSameStudioDay(_ a: Appointment, _ b: Appointment) -> Bool {
@@ -72,5 +77,23 @@ extension SameDayUnsettledVisit {
             quotedServicePriceCents: nil,
             servicePrice: appointment.servicePrice
         )
+    }
+
+    func replacingUnparseableTimes(from other: SameDayUnsettledVisit) -> SameDayUnsettledVisit {
+        SameDayUnsettledVisit(
+            id: id,
+            bookingTime: parseableTime(bookingTime) ? bookingTime : other.bookingTime,
+            endTime: parseableTime(endTime) ? endTime : other.endTime,
+            serviceName: serviceName,
+            quotedServicePriceCents: quotedServicePriceCents,
+            servicePrice: servicePrice
+        )
+    }
+
+    private func parseableTime(_ raw: String?) -> Bool {
+        guard let raw, let _ = BookingDisplay.iso8601Date(from: raw) else {
+            return false
+        }
+        return true
     }
 }

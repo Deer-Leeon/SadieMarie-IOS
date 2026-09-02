@@ -431,6 +431,7 @@ struct ManualBookingCreatePayload: Encodable, Sendable {
     let clientName: String
     let clientEmail: String?
     let clientPhone: String
+    let bookingNotes: String?
 
     nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -441,6 +442,7 @@ struct ManualBookingCreatePayload: Encodable, Sendable {
         try container.encode(clientName, forKey: .clientName)
         try container.encodeIfPresent(clientEmail, forKey: .clientEmail)
         try container.encode(clientPhone, forKey: .clientPhone)
+        try container.encodeIfPresent(bookingNotes, forKey: .bookingNotes)
     }
 
     nonisolated func encodedJSON() throws -> Data {
@@ -455,6 +457,7 @@ struct ManualBookingCreatePayload: Encodable, Sendable {
         case clientName
         case clientEmail
         case clientPhone
+        case bookingNotes
     }
 }
 
@@ -467,6 +470,7 @@ struct ManualBookingCompletePayload: Encodable, Sendable {
     let bookingTime: String?
     let endTime: String?
     let durationMins: Int?
+    let bookingNotes: String?
 
     nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -478,6 +482,7 @@ struct ManualBookingCompletePayload: Encodable, Sendable {
         try container.encodeIfPresent(bookingTime, forKey: .bookingTime)
         try container.encodeIfPresent(endTime, forKey: .endTime)
         try container.encodeIfPresent(durationMins, forKey: .durationMins)
+        try container.encodeIfPresent(bookingNotes, forKey: .bookingNotes)
     }
 
     nonisolated func encodedJSON() throws -> Data {
@@ -493,6 +498,7 @@ struct ManualBookingCompletePayload: Encodable, Sendable {
         case bookingTime
         case endTime
         case durationMins
+        case bookingNotes
     }
 }
 
@@ -507,6 +513,7 @@ enum ManualBookingExecution {
         clientLastName: String,
         clientEmail: String?,
         clientPhoneDigits: String,
+        bookingNotes: String? = nil,
         api: AdminAPIClient = .shared
     ) async throws {
         if let clientEmail, !ClientEmail.isValidOptional(clientEmail) {
@@ -528,7 +535,8 @@ enum ManualBookingExecution {
                 clientLastName: clientLastName,
                 clientName: clientName,
                 clientEmail: normalizedEmail,
-                clientPhone: clientPhoneDigits
+                clientPhone: clientPhoneDigits,
+                bookingNotes: bookingNotes
             )
         )
 
@@ -552,7 +560,8 @@ enum ManualBookingExecution {
                     serviceName: service.title,
                     bookingTime: bookingTime,
                     endTime: endTime,
-                    durationMins: service.durationMins
+                    durationMins: service.durationMins,
+                    bookingNotes: bookingNotes
                 )
             )
         } catch {

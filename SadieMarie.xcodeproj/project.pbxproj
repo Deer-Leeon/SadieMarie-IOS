@@ -509,7 +509,7 @@
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_ENTITLEMENTS = SadieMarieWidgetsExtensionDebug.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 26;
+				CURRENT_PROJECT_VERSION = 27;
 				DEVELOPMENT_TEAM = F54JWSP8S3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SadieMarieWidgets/Info.plist;
@@ -540,7 +540,7 @@
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_ENTITLEMENTS = SadieMarieWidgetsExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 26;
+				CURRENT_PROJECT_VERSION = 27;
 				DEVELOPMENT_TEAM = F54JWSP8S3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SadieMarieWidgets/Info.plist;
@@ -570,7 +570,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = SadieMarieNotificationsExtensionDebug.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 26;
+				CURRENT_PROJECT_VERSION = 27;
 				DEVELOPMENT_TEAM = F54JWSP8S3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SadieMarieNotifications/Info.plist;
@@ -600,7 +600,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = SadieMarieNotificationsExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 26;
+				CURRENT_PROJECT_VERSION = 27;
 				DEVELOPMENT_TEAM = F54JWSP8S3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SadieMarieNotifications/Info.plist;

@@ -26,6 +26,7 @@ final class ManualBookingViewModel {
     var clientPhone = ""
     var phoneTouched = false
     var emailTouched = false
+    var bookingNotes = ""
 
     private(set) var isLoadingServices = false
     private(set) var isCompleting = false
@@ -481,6 +482,7 @@ final class ManualBookingViewModel {
         didCompleteBooking = false
         phoneTouched = false
         emailTouched = false
+        bookingNotes = ""
         step = .service
 
         if lockedClient == nil {
@@ -523,7 +525,8 @@ final class ManualBookingViewModel {
                 clientFirstName: trimmedFirst,
                 clientLastName: trimmedLast,
                 clientEmail: optionalEmail,
-                clientPhoneDigits: parsedPhone.digits
+                clientPhoneDigits: parsedPhone.digits,
+                bookingNotes: Self.notesForApi(bookingNotes)
             )
             didCompleteBooking = true
             onSuccess()
@@ -537,6 +540,15 @@ final class ManualBookingViewModel {
         } catch {
             errorMessage = "Booking failed: \(error.localizedDescription)"
         }
+    }
+
+    private static func notesForApi(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed.count > 4000 {
+            return String(trimmed.prefix(4000))
+        }
+        return trimmed
     }
 
     // MARK: - Private

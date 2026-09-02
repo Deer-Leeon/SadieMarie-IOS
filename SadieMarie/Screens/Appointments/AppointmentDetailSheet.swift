@@ -101,8 +101,7 @@ struct AppointmentDetailSheet: View {
                             }
                         )
                     }
-                    if let notes = appointment.bookingNotes?.trimmingCharacters(in: .whitespacesAndNewlines),
-                       !notes.isEmpty {
+                    if let notes = BookingDisplay.clientBookingNotes(for: appointment) {
                         notesCard(notes)
                     }
                 }

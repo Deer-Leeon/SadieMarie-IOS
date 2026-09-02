@@ -211,7 +211,17 @@ struct ManualBookingWizardView: View {
                     completingOverlay
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    ManualBookingSlotPickerView(viewModel: viewModel, layout: .compact)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 12) {
+                            ManualBookingSlotPickerView(
+                                viewModel: viewModel,
+                                layout: .compact
+                            )
+                            bookingNotesField
+                        }
+                        .padding(.bottom, 8)
+                    }
+                    .scrollDismissesKeyboard(.interactively)
                 }
             }
             .padding(.horizontal, Layout.contentPadding)
@@ -243,6 +253,35 @@ struct ManualBookingWizardView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollDismissesKeyboard(viewModel.step == .client ? .never : .interactively)
+        }
+    }
+
+    private var bookingNotesField: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Booking notes")
+                    .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
+                    .tracking(1.6)
+                    .textCase(.uppercase)
+                    .foregroundStyle(AdminTheme.stone500)
+                Text("Optional")
+                    .font(AdminTheme.fontAdminSans(size: 10))
+                    .foregroundStyle(AdminTheme.stone400)
+            }
+            TextField(
+                "Anything to remember for this visit",
+                text: $viewModel.bookingNotes,
+                axis: .vertical
+            )
+            .lineLimit(3...6)
+            .font(AdminTheme.fontAdminSans(size: 15))
+            .padding(12)
+            .background(AdminTheme.cardFill)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(AdminTheme.stone200, lineWidth: 1)
+            )
         }
     }
 

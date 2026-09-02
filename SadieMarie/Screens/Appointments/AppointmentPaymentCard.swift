@@ -214,18 +214,27 @@ struct AppointmentPaymentCard: View {
 
     private func settlementSheet(_ method: AppointmentSettlementMethod) -> some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 18) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(method == .cash ? "Mark paid cash" : "Mark complimentary")
-                                .font(AdminTheme.fontAdminSerif(size: 23))
-                                .foregroundStyle(AdminTheme.stone900)
-                            Text(settlementExplanation(method))
-                                .font(AdminTheme.fontAdminSans(size: 13))
-                                .foregroundStyle(AdminTheme.stone700)
-                        }
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(method == .cash ? "Mark paid cash" : "Mark complimentary")
+                        .font(AdminTheme.fontAdminSerif(size: 23))
+                        .foregroundStyle(AdminTheme.stone900)
+                    Text(settlementExplanation(method))
+                        .font(AdminTheme.fontAdminSans(size: 13))
+                        .foregroundStyle(AdminTheme.stone700)
+                }
 
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Note (optional)")
+                        .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
+                        .foregroundStyle(AdminTheme.stone700)
+                    TextField("Add context for your records", text: $note)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(isSubmitting)
+                }
+
+                if !siblings.isEmpty {
+                    ScrollView {
                         SameDayVisitChecklist(
                             primary: appointment,
                             siblings: siblings,
@@ -238,16 +247,8 @@ struct AppointmentPaymentCard: View {
                                 selectedExtraIds.insert(id)
                             }
                         }
-
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Note (optional)")
-                                .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
-                                .foregroundStyle(AdminTheme.stone700)
-                            TextField("Add context for your records", text: $note, axis: .vertical)
-                                .lineLimit(2...4)
-                                .textFieldStyle(.roundedBorder)
-                        }
                     }
+                    .scrollBounceBehavior(.basedOnSize)
                 }
 
                 Button {
