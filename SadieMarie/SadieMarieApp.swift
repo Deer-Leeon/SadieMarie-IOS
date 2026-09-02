@@ -1,15 +1,17 @@
 import SwiftUI
 import ClerkKit
+import UIKit
 
 /// Application entry point. Configures the Clerk SDK *first* — before
 /// any SwiftUI state property reads `Clerk.shared` — and acts as the
 /// bouncer for the rest of the UI:
 ///
-/// - While Clerk is still loading from cache / network → splash screen.
+/// - While Clerk hydrates (and, if signed in, Bookings first-loads) → brand splash.
 /// - When `clerk.user == nil` → `LoginView` (signed-out shell).
 /// - When `clerk.user != nil` → `RootTabView` (the 5 admin tabs).
 @main
 struct SadieMarieApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     /// Publishable key from Clerk Dashboard → Production → API Keys.
     /// Must match the same Production instance as `www.sadiemarie.co`
@@ -49,49 +51,133 @@ struct SadieMarieApp: App {
         //    property from inside `init()`.
         _clerk = State(initialValue: Clerk.shared)
         _appState = State(initialValue: AppState())
+
+        // Decode the splash mark during process launch so SwiftUI inherits
+        // the same pixels the launch storyboard is already showing.
+        _ = UIImage(named: "BrandLogo")
     }
 
     var body: some Scene {
         WindowGroup {
             AppRootContent()
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(.light)
+                .background(BrandSplashLayout.background.ignoresSafeArea())
                 .environment(appState)
+                .environment(PushRegistration.shared)
                 .environment(clerk)
         }
     }
 }
 
-/// Top-level routing host. Strict gate on Clerk session state — no
-/// transitions, no fallbacks. Either you have a Clerk session, or you
-/// see `LoginView`.
+/// Top-level routing host. Brand splash stays mounted as an overlay until
+/// Clerk is loaded and — when signed in — the Bookings calendar has painted.
 private struct AppRootContent: View {
     @Environment(Clerk.self) private var clerk
+    @Environment(\.scenePhase) private var scenePhase
+
+    @State private var bookingsViewModel = BookingsViewModel()
+    @State private var showSplash = true
+    @State private var splashStartedAt = Date()
+    @State private var didScheduleDismiss = false
+
+    private static let minimumSplashDuration: TimeInterval = 0.7
+    private static let revealAnimation = Animation.spring(response: 0.72, dampingFraction: 0.86)
+    /// Grow the mark in place (image-view center = screen center).
+    private static let dismissLogoScale: CGFloat = 1.18
+
+    private var isSignedIn: Bool {
+        clerk.user != nil && clerk.session != nil
+    }
+
+    private var isLaunchReady: Bool {
+        guard clerk.isLoaded else { return false }
+        if isSignedIn {
+            return bookingsViewModel.hasLoaded
+        }
+        return true
+    }
 
     var body: some View {
-        Group {
-            if !clerk.isLoaded {
-                SplashView()
-            } else if clerk.user != nil, clerk.session != nil {
-                RootTabView()
-            } else {
-                LoginView()
+        ZStack {
+            BrandSplashLayout.background.ignoresSafeArea()
+
+            Group {
+                if clerk.isLoaded {
+                    if isSignedIn {
+                        RootTabView(bookingsViewModel: bookingsViewModel)
+                    } else {
+                        LoginView()
+                    }
+                }
+            }
+            .allowsHitTesting(!showSplash)
+
+            BrandSplashView(
+                logoScale: showSplash ? 1 : Self.dismissLogoScale,
+                opacity: showSplash ? 1 : 0
+            )
+            .ignoresSafeArea()
+            .zIndex(1)
+        }
+        .background(LaunchWindowBackground())
+        .onAppear { considerDismissingSplash() }
+        .onChange(of: isLaunchReady) { _, _ in
+            considerDismissingSplash()
+        }
+        .onChange(of: bookingsViewModel.hasLoaded) { _, _ in
+            considerDismissingSplash()
+        }
+        .onChange(of: clerk.session?.id) { _, newId in
+            guard newId != nil else { return }
+            Task { await SessionKeepAlive.run() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background {
+                SessionKeepAlive.scheduleBackgroundRefresh()
+            }
+            guard phase == .active else { return }
+            Task {
+                await SessionKeepAlive.run()
+                if clerk.session != nil {
+                    PushRegistration.shared.requestLiveDataRefresh()
+                }
+            }
+        }
+        .task {
+            await SessionKeepAlive.run()
+        }
+    }
+
+    private func considerDismissingSplash() {
+        guard showSplash, isLaunchReady, !didScheduleDismiss else { return }
+        didScheduleDismiss = true
+        let remaining = max(0, Self.minimumSplashDuration - Date().timeIntervalSince(splashStartedAt))
+        Task {
+            if remaining > 0 {
+                try? await Task.sleep(for: .seconds(remaining))
+            }
+            await MainActor.run {
+                withAnimation(Self.revealAnimation) {
+                    showSplash = false
+                }
             }
         }
     }
 }
 
-/// Brief splash shown while Clerk hydrates its cached client and
-/// environment on cold launch. Without this, signed-in users would
-/// see `LoginView` flash for a frame before being kicked into the
-/// app — an avoidable UX papercut.
-private struct SplashView: View {
-    var body: some View {
-        ZStack {
-            AdminTheme.cream.ignoresSafeArea()
-            ProgressView()
-                .controlSize(.large)
-                .tint(AdminTheme.stone900)
-        }
-        .preferredColorScheme(.light)
+/// Paints the UIWindow the same cream as the launch storyboard. The system
+/// window defaults to white, which showed around the logo for one frame.
+private struct LaunchWindowBackground: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        let cream = BrandSplashLayout.uiBackground
+        uiView.window?.backgroundColor = cream
+        uiView.superview?.backgroundColor = cream
     }
 }

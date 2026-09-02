@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Single-day timeline — hour grid with tappable rows for blocking time.
+/// Fits 9 AM–9 PM in the available height (no scroll), matching 3-day / week.
 struct SingleDayTimelineView: View {
     let items: [PositionedAppointment]
     let timeBlocks: [PositionedTimeBlock]
@@ -8,74 +9,72 @@ struct SingleDayTimelineView: View {
     var onHourTap: ((Int) -> Void)?
     var onAppointmentTap: ((Appointment) -> Void)?
     var onBlockTap: ((TimeBlock) -> Void)?
+    var hatchBands: [StudioScheduleWindows.MinuteBand] = []
 
     private let calendar = Calendar.current
     private let timeColumnWidth: CGFloat = 56
-    private let hourRowMinHeight: CGFloat = 56
-
-    private var gridHeight: CGFloat {
-        CGFloat(BookingsCalendarLayout.hourCount) * hourRowMinHeight
-    }
 
     private var isEmpty: Bool {
         items.isEmpty && timeBlocks.isEmpty
     }
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: true) {
-            HStack(alignment: .top, spacing: 0) {
-                timeLabelsColumn
-                    .frame(width: timeColumnWidth)
+        GeometryReader { geometry in
+            let topGutter = BookingsCalendarLayout.dayModalTopGutter
+            let resolvedHourHeight = BookingsCalendarLayout.resolvedHourHeight(
+                inAvailableHeight: geometry.size.height - topGutter
+            )
 
-                ZStack(alignment: .topLeading) {
-                    hourGridLines
-                    hourTapRows
-                    if isEmpty {
-                        emptyHint
+            if let hourHeight = resolvedHourHeight {
+                let gridBodyHeight = BookingsCalendarLayout.gridBodyHeight(hourHeight: hourHeight)
+                let hourBandHeight = BookingsCalendarLayout.hourBandHeight(hourHeight: hourHeight)
+
+                VStack(spacing: 0) {
+                    Color.clear
+                        .frame(height: topGutter)
+
+                    HStack(alignment: .top, spacing: 0) {
+                        BookingsTimeLabelsColumn(hourHeight: hourHeight, isWeekStyle: false)
+                            .frame(width: timeColumnWidth)
+
+                        ZStack(alignment: .topLeading) {
+                            ClosedHoursHatchBands(
+                                bands: hatchBands,
+                                hourHeight: hourHeight
+                            )
+                            .frame(height: hourBandHeight)
+                            .zIndex(0)
+                            BookingsHourlyGridBackground(hourHeight: hourHeight)
+                                .zIndex(1)
+                            hourTapRows(hourHeight: hourHeight)
+                                .frame(height: hourBandHeight)
+                                .zIndex(1)
+                            if isEmpty {
+                                emptyHint
+                                    .frame(height: hourBandHeight)
+                            }
+                            timeBlockPills(hourHeight: hourHeight)
+                                .frame(height: hourBandHeight)
+                                .zIndex(2)
+                            appointmentCards(hourHeight: hourHeight)
+                                .frame(height: hourBandHeight)
+                                .zIndex(3)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: gridBodyHeight, alignment: .top)
                     }
-                    timeBlockPills
-                        .zIndex(2)
-                    appointmentCards
-                        .zIndex(3)
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity)
-                .frame(height: gridHeight)
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .top)
+            } else {
+                Color.clear
             }
-            .padding(.horizontal, 4)
         }
     }
 
-    // MARK: - Time axis
+    // MARK: - Hour taps
 
-    private var timeLabelsColumn: some View {
-        VStack(spacing: 0) {
-            ForEach(BookingsCalendarLayout.hourStart..<BookingsCalendarLayout.hourEnd, id: \.self) { hour in
-                Text(hourLabel(for: hour))
-                    .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
-                    .foregroundStyle(AdminTheme.gray400)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(.trailing, 4)
-                    .padding(.top, 6)
-                    .frame(height: hourRowMinHeight, alignment: .top)
-            }
-        }
-        .allowsHitTesting(false)
-    }
-
-    private var hourGridLines: some View {
-        VStack(spacing: 0) {
-            ForEach(BookingsCalendarLayout.hourStart..<BookingsCalendarLayout.hourEnd, id: \.self) { _ in
-                Rectangle()
-                    .fill(AdminTheme.stone200)
-                    .frame(height: 0.5)
-                    .frame(maxWidth: .infinity, alignment: .top)
-                    .frame(height: hourRowMinHeight, alignment: .top)
-            }
-        }
-        .allowsHitTesting(false)
-    }
-
-    private var hourTapRows: some View {
+    private func hourTapRows(hourHeight: CGFloat) -> some View {
         VStack(spacing: 0) {
             ForEach(BookingsCalendarLayout.hourStart..<BookingsCalendarLayout.hourEnd, id: \.self) { hour in
                 Button {
@@ -85,14 +84,16 @@ struct SingleDayTimelineView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .frame(height: hourRowMinHeight)
-                .accessibilityLabel("Block time starting at \(hourLabel(for: hour))")
+                .frame(height: hourHeight)
+                .accessibilityLabel(
+                    "Book or block time starting at \(BookingsTimeLabelsColumn.label(for: hour))"
+                )
             }
         }
     }
 
     private var emptyHint: some View {
-        Text("No bookings — tap an hour to block")
+        Text("No bookings — tap an hour to book or block")
             .font(AdminTheme.fontAdminSans(size: 11, weight: .medium))
             .foregroundStyle(AdminTheme.stone500)
             .textCase(.uppercase)
@@ -103,12 +104,13 @@ struct SingleDayTimelineView: View {
 
     // MARK: - Blocks
 
-    private var timeBlockPills: some View {
+    private func timeBlockPills(hourHeight: CGFloat) -> some View {
         GeometryReader { geometry in
+            let hourBandHeight = BookingsCalendarLayout.hourBandHeight(hourHeight: hourHeight)
             ForEach(timeBlocks) { positioned in
-                let top = geometry.size.height * CGFloat(positioned.topPct / 100)
+                let top = hourBandHeight * CGFloat(positioned.topPct / 100)
                 let height = max(
-                    geometry.size.height * CGFloat(positioned.heightPct / 100),
+                    hourBandHeight * CGFloat(positioned.heightPct / 100),
                     TimelineEngine.minPillHeight
                 )
 
@@ -125,12 +127,13 @@ struct SingleDayTimelineView: View {
 
     // MARK: - Appointments
 
-    private var appointmentCards: some View {
+    private func appointmentCards(hourHeight: CGFloat) -> some View {
         GeometryReader { geometry in
             ForEach(items) { positioned in
                 positionedCard(
                     positioned,
-                    columnWidth: geometry.size.width
+                    columnWidth: geometry.size.width,
+                    hourHeight: hourHeight
                 )
             }
         }
@@ -139,7 +142,8 @@ struct SingleDayTimelineView: View {
     @ViewBuilder
     private func positionedCard(
         _ positioned: PositionedAppointment,
-        columnWidth: CGFloat
+        columnWidth: CGFloat,
+        hourHeight: CGFloat
     ) -> some View {
         let appointment = positioned.appointment
         if
@@ -150,11 +154,12 @@ struct SingleDayTimelineView: View {
                 ?? calendar.date(byAdding: .hour, value: 1, to: start)
                 ?? start.addingTimeInterval(3600)
 
+            let hourBandHeight = BookingsCalendarLayout.hourBandHeight(hourHeight: hourHeight)
             let topInset = columnWidth > 0
-                ? CGFloat(positioned.topPct / 100) * (CGFloat(BookingsCalendarLayout.hourCount) * hourRowMinHeight)
+                ? CGFloat(positioned.topPct / 100) * hourBandHeight
                 : 0
             let cardHeight = max(
-                CGFloat(positioned.heightPct / 100) * (CGFloat(BookingsCalendarLayout.hourCount) * hourRowMinHeight),
+                CGFloat(positioned.heightPct / 100) * hourBandHeight,
                 TimelineEngine.minPillHeight
             )
             let durationMinutes = BookingDisplay.CalendarFormatting.durationMinutes(
@@ -162,18 +167,25 @@ struct SingleDayTimelineView: View {
                 end: end
             )
 
-            let widthPct = 100.0 / Double(positioned.totalCols)
-            let cardWidth = max(columnWidth * CGFloat(widthPct / 100) - 4, 8)
-            let leading = columnWidth * CGFloat(Double(positioned.col) * widthPct / 100) + 2
+            let lane = TimelineEngine.columnLaneFrame(
+                col: positioned.col,
+                totalCols: positioned.totalCols,
+                columnWidth: columnWidth,
+                outer: positioned.totalCols > 1 ? 2 : 8,
+                gap: positioned.totalCols > 1 ? 2 : 0
+            )
 
             calendarAppointmentButton(
                 appointment: appointment,
-                cardWidth: cardWidth,
+                cardWidth: lane.width,
                 cardHeight: cardHeight,
-                durationMinutes: durationMinutes
+                durationMinutes: durationMinutes,
+                denseColumns: positioned.totalCols > 1,
+                hourHeight: hourHeight
             )
-            .padding(.leading, leading)
+            .padding(.leading, lane.leading)
             .padding(.top, topInset)
+            .zIndex(lane.zIndex)
         }
     }
 
@@ -182,7 +194,9 @@ struct SingleDayTimelineView: View {
         appointment: Appointment,
         cardWidth: CGFloat,
         cardHeight: CGFloat,
-        durationMinutes: Int
+        durationMinutes: Int,
+        denseColumns: Bool,
+        hourHeight: CGFloat
     ) -> some View {
         let shape = RoundedRectangle(cornerRadius: 4)
 
@@ -194,7 +208,9 @@ struct SingleDayTimelineView: View {
                     cardContent(
                         appointment: appointment,
                         cardHeight: cardHeight,
-                        durationMinutes: durationMinutes
+                        durationMinutes: durationMinutes,
+                        denseColumns: denseColumns,
+                        hourHeight: hourHeight
                     )
                     .frame(width: cardWidth, height: cardHeight, alignment: .topLeading)
                     .contentShape(shape)
@@ -205,36 +221,30 @@ struct SingleDayTimelineView: View {
                 cardContent(
                     appointment: appointment,
                     cardHeight: cardHeight,
-                    durationMinutes: durationMinutes
+                    durationMinutes: durationMinutes,
+                    denseColumns: denseColumns,
+                    hourHeight: hourHeight
                 )
                 .frame(width: cardWidth, height: cardHeight, alignment: .topLeading)
                 .allowsHitTesting(false)
             }
         }
-        .padding(.horizontal, 2)
     }
 
     private func cardContent(
         appointment: Appointment,
         cardHeight: CGFloat,
-        durationMinutes: Int
+        durationMinutes: Int,
+        denseColumns: Bool,
+        hourHeight: CGFloat
     ) -> some View {
         DayColumnBookingCard(
             appointment: appointment,
             isWeekStyle: false,
             blockHeight: cardHeight,
-            hourHeight: hourRowMinHeight,
-            durationMinutes: durationMinutes
+            hourHeight: hourHeight,
+            durationMinutes: durationMinutes,
+            denseColumns: denseColumns
         )
-    }
-
-    private func hourLabel(for hour: Int) -> String {
-        var components = DateComponents()
-        components.hour = hour
-        components.minute = 0
-        let date = calendar.date(from: components) ?? Date()
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h a"
-        return formatter.string(from: date)
     }
 }

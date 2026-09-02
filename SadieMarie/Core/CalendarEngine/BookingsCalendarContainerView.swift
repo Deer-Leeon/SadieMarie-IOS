@@ -8,14 +8,64 @@ struct BookingsCalendarContainerView: View {
     /// List + single-day modal + month (includes pending and no-show).
     let modalAppointments: [Appointment]
     let timeBlocks: [TimeBlock]
+    var scheduleAvailability: [ScheduleAvailabilityBlock] = []
+    var scheduleOverrides: [ScheduleOverride] = []
+    var hasSchedule: Bool = false
+    var jumpToTodayID: Int = 0
     var onDayClick: ((Date) -> Void)?
     var onSelectAppointment: ((Appointment) -> Void)?
+    var onHourClick: ((Date, Int) -> Void)?
+    var onBlockClick: ((TimeBlock) -> Void)?
+    @Binding var rangeTitle: String
 
     @State private var rangeStart = Calendar.current.startOfDay(for: Date())
-    @State private var store = AppointmentCalendarStore()
+    @State private var store: AppointmentCalendarStore
+    @State private var monthStore: AppointmentCalendarStore
     @State private var monthScrollToTodayToken = 0
 
     private let calendar = Calendar.current
+
+    init(
+        mode: BookingsView.CalendarMode,
+        gridAppointments: [Appointment],
+        modalAppointments: [Appointment],
+        timeBlocks: [TimeBlock],
+        scheduleAvailability: [ScheduleAvailabilityBlock] = [],
+        scheduleOverrides: [ScheduleOverride] = [],
+        hasSchedule: Bool = false,
+        jumpToTodayID: Int = 0,
+        onDayClick: ((Date) -> Void)? = nil,
+        onSelectAppointment: ((Appointment) -> Void)? = nil,
+        onHourClick: ((Date, Int) -> Void)? = nil,
+        onBlockClick: ((TimeBlock) -> Void)? = nil,
+        rangeTitle: Binding<String>
+    ) {
+        self.mode = mode
+        self.gridAppointments = gridAppointments
+        self.modalAppointments = modalAppointments
+        self.timeBlocks = timeBlocks
+        self.scheduleAvailability = scheduleAvailability
+        self.scheduleOverrides = scheduleOverrides
+        self.hasSchedule = hasSchedule
+        self.jumpToTodayID = jumpToTodayID
+        self.onDayClick = onDayClick
+        self.onSelectAppointment = onSelectAppointment
+        self.onHourClick = onHourClick
+        self.onBlockClick = onBlockClick
+        _rangeTitle = rangeTitle
+        _store = State(
+            initialValue: AppointmentCalendarStore(
+                appointments: gridAppointments,
+                timeBlocks: timeBlocks
+            )
+        )
+        _monthStore = State(
+            initialValue: AppointmentCalendarStore(
+                appointments: modalAppointments,
+                timeBlocks: timeBlocks
+            )
+        )
+    }
 
     private var visibleDays: [Date] {
         BookingDisplay.CalendarFormatting.visibleDays(
@@ -32,77 +82,54 @@ struct BookingsCalendarContainerView: View {
         )
     }
 
-    private var showsDateNavigation: Bool {
-        mode == .threeDay || mode == .week
-    }
-
     private var fillsHeight: Bool {
         mode != .list
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if showsDateNavigation {
-                BookingsCalendarHeader(
-                    title: headerTitle,
-                    onPrevious: { navigate(by: -1) },
-                    onToday: { jumpToToday() },
-                    onNext: { navigate(by: 1) }
-                )
-                .animation(.easeInOut(duration: 0.22), value: rangeStart)
-
-                Divider()
-                    .overlay(AdminTheme.stone200)
+        calendarBody
+            .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil)
+            .background(AdminTheme.cream)
+            .preferredColorScheme(.light)
+            .onAppear {
+                syncStore()
+                alignRangeStartForMode()
+                publishRangeTitle()
             }
-
-            calendarBody
-                .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil)
-                .animation(.easeInOut(duration: 0.22), value: mode)
-        }
-        .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil)
-        .background(AdminTheme.cream)
-        .preferredColorScheme(.light)
-        .onAppear {
-            syncStore()
-            alignRangeStartForMode()
-            if mode == .month {
-                monthScrollToTodayToken += 1
+            .onChange(of: rangeStart) { _, _ in publishRangeTitle() }
+            .onChange(of: gridAppointments) { _, _ in syncStore() }
+            .onChange(of: modalAppointments) { _, _ in syncStore() }
+            .onChange(of: timeBlocks) { _, _ in syncStore() }
+            .onChange(of: mode) { _, _ in
+                syncStore()
+                alignRangeStartForMode()
+                publishRangeTitle()
             }
-        }
-        .onChange(of: gridAppointments) { _, _ in syncStore() }
-        .onChange(of: modalAppointments) { _, _ in syncStore() }
-        .onChange(of: timeBlocks) { _, _ in syncStore() }
-        .onChange(of: mode) { _, newMode in
-            syncStore()
-            alignRangeStartForMode()
-            if newMode == .month {
-                monthScrollToTodayToken += 1
+            .onChange(of: jumpToTodayID) { oldValue, newValue in
+                guard newValue != oldValue else { return }
+                jumpToTodayFromTabReselect()
             }
-        }
     }
 
     @ViewBuilder
     private var calendarBody: some View {
-        Group {
-            switch mode {
-            case .threeDay, .week:
-                swipeableTimeGrid
-            case .month:
-                BookingsMonthCalendarView(
-                    appointments: modalAppointments,
-                    timeBlocks: timeBlocks,
-                    onDayClick: onDayClick
-                )
-            case .list:
-                EmptyView()
-            }
+        switch mode {
+        case .threeDay, .week:
+            swipeableTimeGrid
+        case .month:
+            BookingsMonthCalendarView(
+                store: monthStore,
+                scrollToTodayID: monthScrollToTodayToken,
+                onDayClick: onDayClick
+            )
+        case .list:
+            EmptyView()
         }
-        .id(mode)
     }
 
     private func syncStore() {
-        guard mode != .month else { return }
         store.replace(appointments: gridAppointments, timeBlocks: timeBlocks)
+        monthStore.replace(appointments: modalAppointments, timeBlocks: timeBlocks)
     }
 
     private var navigationStepDays: Int {
@@ -110,10 +137,47 @@ struct BookingsCalendarContainerView: View {
     }
 
     private var swipeableTimeGrid: some View {
-        BookingsCalendarRangePager(
+        let isWeek = mode == .week
+        let timeColumnWidth = BookingsCalendarLayout.timeColumnWidth(isWeek: isWeek)
+        let headerHeight = BookingsCalendarLayout.dayColumnHeaderHeight
+        let hPad = BookingsCalendarLayout.horizontalPadding(isWeek: isWeek)
+
+        return BookingsCalendarRangePager(
             rangeStart: rangeStart,
             stepDays: navigationStepDays,
             calendar: calendar,
+            pinnedLeadingWidth: timeColumnWidth,
+            pinnedLeading: {
+                VStack(spacing: 0) {
+                    Color.clear
+                        .frame(width: timeColumnWidth, height: headerHeight)
+                    Color.clear
+                        .frame(height: BookingsCalendarLayout.gridTopGutter)
+                    GeometryReader { rail in
+                        if let hourHeight = BookingsCalendarLayout.resolvedHourHeight(
+                            inAvailableHeight: rail.size.height
+                        ) {
+                            BookingsTimeLabelsColumn(
+                                hourHeight: hourHeight,
+                                isWeekStyle: isWeek
+                            )
+                        }
+                    }
+                }
+            },
+            pinnedBackdrop: {
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: headerHeight)
+                    Color.clear.frame(height: BookingsCalendarLayout.gridTopGutter)
+                    GeometryReader { grid in
+                        if let hourHeight = BookingsCalendarLayout.resolvedHourHeight(
+                            inAvailableHeight: grid.size.height
+                        ) {
+                            BookingsHourlyGridBackground(hourHeight: hourHeight)
+                        }
+                    }
+                }
+            },
             daysForRangeStart: { start in
                 BookingDisplay.CalendarFormatting.visibleDays(
                     mode: mode,
@@ -129,9 +193,20 @@ struct BookingsCalendarContainerView: View {
                 days: days,
                 store: store,
                 onDayClick: onDayClick,
-                onSelectAppointment: onSelectAppointment
+                onSelectAppointment: onSelectAppointment,
+                onHourClick: onHourClick,
+                onBlockClick: onBlockClick,
+                showsPinnedChrome: false,
+                scheduleAvailability: scheduleAvailability,
+                scheduleOverrides: scheduleOverrides,
+                hasSchedule: hasSchedule
             )
         }
+        .padding(.horizontal, hPad)
+        .padding(.bottom, BookingsCalendarLayout.timeGridBottomGutter)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
+        .scrollDisabled(true)
     }
 
     // MARK: - Navigation (3-day / week only)
@@ -144,13 +219,26 @@ struct BookingsCalendarContainerView: View {
     }
 
     private func jumpToToday() {
-        let today = calendar.startOfDay(for: Date())
+        rangeStart = BookingDisplay.CalendarFormatting.currentRangeStart(
+            mode: mode,
+            calendar: calendar
+        )
+    }
+
+    private func jumpToTodayFromTabReselect() {
         switch mode {
-        case .week:
-            rangeStart = calendar.dateInterval(of: .weekOfYear, for: today)?.start ?? today
-        case .threeDay:
-            rangeStart = today
-        case .month, .list:
+        case .threeDay, .week:
+            if BookingDisplay.CalendarFormatting.rangeContainsToday(
+                mode: mode,
+                rangeStart: rangeStart,
+                calendar: calendar
+            ) {
+                return
+            }
+            jumpToToday()
+        case .month:
+            monthScrollToTodayToken += 1
+        case .list:
             break
         }
     }
@@ -159,6 +247,10 @@ struct BookingsCalendarContainerView: View {
         guard mode == .threeDay || mode == .week else { return }
         jumpToToday()
     }
+
+    private func publishRangeTitle() {
+        rangeTitle = (mode == .threeDay || mode == .week) ? headerTitle : ""
+    }
 }
 
 #Preview("3 Day grid") {
@@ -166,6 +258,7 @@ struct BookingsCalendarContainerView: View {
         mode: .threeDay,
         gridAppointments: Appointment.mockList.calendarAppointments,
         modalAppointments: Appointment.mockList.visibleAppointments,
-        timeBlocks: []
+        timeBlocks: [],
+        rangeTitle: .constant("")
     )
 }

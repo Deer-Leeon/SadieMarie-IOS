@@ -31,6 +31,16 @@ final class AppointmentCalendarStore {
     self.calendar = calendar
   }
 
+  /// Ready for the first SwiftUI frame — no empty-then-fill flash.
+  convenience init(
+    appointments: [Appointment],
+    timeBlocks: [TimeBlock] = [],
+    calendar: Calendar = .current
+  ) {
+    self.init(calendar: calendar)
+    replace(appointments: appointments, timeBlocks: timeBlocks)
+  }
+
   func replace(
     appointments: [Appointment],
     timeBlocks: [TimeBlock] = [],

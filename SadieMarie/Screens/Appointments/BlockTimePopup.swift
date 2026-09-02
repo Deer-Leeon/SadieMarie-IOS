@@ -7,6 +7,7 @@ struct BlockTimePopup: View {
     let editingBlock: TimeBlock?
     var isSubmitting: Bool
     var submissionError: String?
+    var modeSwitch: AnyView? = nil
     var onCancel: () -> Void
     var onSubmit: (BlockTimeRequest) -> Void
 
@@ -24,6 +25,7 @@ struct BlockTimePopup: View {
         editingBlock: TimeBlock? = nil,
         isSubmitting: Bool,
         submissionError: String? = nil,
+        modeSwitch: AnyView? = nil,
         onCancel: @escaping () -> Void,
         onSubmit: @escaping (BlockTimeRequest) -> Void
     ) {
@@ -32,6 +34,7 @@ struct BlockTimePopup: View {
         self.editingBlock = editingBlock
         self.isSubmitting = isSubmitting
         self.submissionError = submissionError
+        self.modeSwitch = modeSwitch
         self.onCancel = onCancel
         self.onSubmit = onSubmit
 
@@ -89,6 +92,10 @@ struct BlockTimePopup: View {
                     Text("Clients won't be able to book this interval on the website. Minimum 30 minutes.")
                         .font(AdminTheme.fontAdminSans(size: 13))
                         .foregroundStyle(AdminTheme.stone600)
+                    if let modeSwitch, editingBlock == nil {
+                        modeSwitch
+                            .padding(.top, 6)
+                    }
                 }
                 Spacer(minLength: 8)
                 Button(action: close) {

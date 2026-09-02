@@ -45,7 +45,12 @@ struct EditClientSheet: View {
                     }
 
                     fieldBlock(title: "Email (optional)", isInvalid: emailInvalid) {
-                        TextField("jane@example.com", text: $email)
+                        TextField(
+                            "Email",
+                            text: $email,
+                            prompt: Text(verbatim: "jane@example.com")
+                                .foregroundStyle(Color(uiColor: .placeholderText))
+                        )
                             .textInputAutocapitalization(.never)
                             .keyboardType(.emailAddress)
                             .autocorrectionDisabled()

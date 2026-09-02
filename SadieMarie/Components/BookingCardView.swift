@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Single booking row — 3-column grid: time · name/service · status pill.
+/// Single booking row — time · name/service · payment (status only when not confirmed).
 struct BookingCardView: View {
     let appointment: Appointment
 
@@ -14,6 +14,11 @@ struct BookingCardView: View {
 
     private var usesServiceBackground: Bool {
         BookingDisplay.usesServiceColorBackground(appointment)
+    }
+
+    private var showsTrailingBadges: Bool {
+        !BookingDisplay.isConfirmed(appointment)
+            || BookingDisplay.settlementLabel(for: appointment.terminalPayment) != nil
     }
 
     private var cardBackground: Color {
@@ -38,22 +43,26 @@ struct BookingCardView: View {
             timeColumn
             nameServiceColumn
             Spacer(minLength: 0)
-            VStack(alignment: .trailing, spacing: 5) {
-                BookingStatusPill(status: appointment.status)
-                if let label = BookingDisplay.settlementLabel(for: appointment.terminalPayment) {
-                    Label(
-                        label,
-                        systemImage: BookingDisplay.settlementSystemImage(
-                            for: appointment.terminalPayment
+            if showsTrailingBadges {
+                VStack(alignment: .trailing, spacing: 5) {
+                    if !BookingDisplay.isConfirmed(appointment) {
+                        BookingStatusPill(status: appointment.status)
+                    }
+                    if let label = BookingDisplay.settlementLabel(for: appointment.terminalPayment) {
+                        Label(
+                            label,
+                            systemImage: BookingDisplay.settlementSystemImage(
+                                for: appointment.terminalPayment
+                            )
                         )
-                    )
-                    .font(AdminTheme.fontAdminSans(size: 9, weight: .semibold))
-                    .foregroundStyle(Color(red: 4 / 255, green: 120 / 255, blue: 87 / 255))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(Color(red: 236 / 255, green: 253 / 255, blue: 245 / 255))
-                    .clipShape(Capsule())
-                    .accessibilityLabel("\(label) settlement")
+                        .font(AdminTheme.fontAdminSans(size: 9, weight: .semibold))
+                        .foregroundStyle(Color(red: 4 / 255, green: 120 / 255, blue: 87 / 255))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color(red: 236 / 255, green: 253 / 255, blue: 245 / 255))
+                        .clipShape(Capsule())
+                        .accessibilityLabel("\(label) settlement")
+                    }
                 }
             }
         }

@@ -6,30 +6,48 @@ import Observation
 final class ServicesViewModel {
 
     private(set) var services: [Service] = []
+    private(set) var hasLoaded = false
     private(set) var isLoading = false
     private(set) var isSubmitting = false
     private(set) var archivingId: Int?
     private(set) var errorMessage: String?
+    private let inFlightLoad = InFlightLoad()
 
     var groupedCategories: [ServiceCategorySection] {
         ServiceCatalog.groupedCategories(from: services)
     }
 
-    func load() async {
-        isLoading = true
-        errorMessage = nil
+    func load(showLoading: Bool = true) async {
+        let blockUI = showLoading && !hasLoaded
+        if blockUI {
+            isLoading = true
+            errorMessage = nil
+        }
 
-        defer { isLoading = false }
+        await inFlightLoad.run { [weak self] in
+            await self?.performLoad()
+        }
+        isLoading = false
+        hasLoaded = true
+    }
 
+    private func performLoad() async {
         do {
             services = try await AdminAPIClient.shared.fetchServices()
+            errorMessage = nil
             AppLogger.syncInfo("Loaded \(services.count) services.")
+        } catch is CancellationError {
+            return
         } catch let error as AdminAPIError {
             AppLogger.syncError("fetchServices failed: \(error.localizedDescription)")
-            errorMessage = message(for: error)
+            if services.isEmpty {
+                errorMessage = message(for: error)
+            }
         } catch {
             AppLogger.syncError("fetchServices failed: \(error.localizedDescription)")
-            errorMessage = error.localizedDescription
+            if services.isEmpty {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 

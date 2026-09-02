@@ -32,8 +32,8 @@ struct AvailabilitySaveBar: View {
             .disabled(!isActive)
             .buttonStyle(.plain)
             .padding(.horizontal, AdminTheme.Spacing.listHorizontal)
-            .padding(.top, 10)
-            .padding(.bottom, 6)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
         }
         .background(AdminTheme.cream.opacity(0.98))
     }

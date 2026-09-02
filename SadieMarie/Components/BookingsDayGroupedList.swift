@@ -5,29 +5,59 @@ struct BookingsDayGroupedList: View {
     let appointments: [Appointment]
     var onSelectAppointment: ((Appointment) -> Void)? = nil
 
-    private var sections: [(day: Date, appointments: [Appointment])] {
-        BookingDisplay.groupedByDay(appointments)
-    }
-
     var body: some View {
         LazyVStack(
             alignment: .leading,
             spacing: AdminTheme.Spacing.cardStack,
             pinnedViews: [.sectionHeaders]
         ) {
-            ForEach(sections, id: \.day) { section in
+            BookingsDaySectionRows(
+                appointments: appointments,
+                onSelectAppointment: onSelectAppointment,
+                usesSection: true
+            )
+        }
+    }
+}
+
+/// Day sections without the outer stack — so the Bookings list can place a
+/// past/upcoming seam between two groups in one `LazyVStack`.
+struct BookingsDaySectionRows: View {
+    let appointments: [Appointment]
+    var onSelectAppointment: ((Appointment) -> Void)? = nil
+    var headerSurface: Color = AdminTheme.cream.opacity(0.95)
+    /// Sticky `Section` headers. Off for past rows so they never pin over upcoming.
+    var usesSection: Bool = false
+
+    private var sections: [(day: Date, appointments: [Appointment])] {
+        BookingDisplay.groupedByDay(appointments)
+    }
+
+    var body: some View {
+        ForEach(sections, id: \.day) { section in
+            if usesSection {
                 Section {
-                    ForEach(section.appointments) { appointment in
-                        BookingCardView(appointment: appointment)
-                            .contentShape(RoundedRectangle(cornerRadius: AdminTheme.Radius.card))
-                            .onTapGesture {
-                                onSelectAppointment?(appointment)
-                            }
-                    }
+                    cards(for: section.appointments)
                 } header: {
-                    BookingsDaySectionHeader(date: section.day)
+                    BookingsDaySectionHeader(date: section.day, surface: headerSurface)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: AdminTheme.Spacing.cardStack) {
+                    BookingsDaySectionHeader(date: section.day, surface: headerSurface)
+                    cards(for: section.appointments)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func cards(for appointments: [Appointment]) -> some View {
+        ForEach(appointments) { appointment in
+            BookingCardView(appointment: appointment)
+                .contentShape(RoundedRectangle(cornerRadius: AdminTheme.Radius.card))
+                .onTapGesture {
+                    onSelectAppointment?(appointment)
+                }
         }
     }
 }
@@ -35,6 +65,7 @@ struct BookingsDayGroupedList: View {
 /// Sticky day divider — matches `BookingsListView` list mode.
 struct BookingsDaySectionHeader: View {
     let date: Date
+    var surface: Color = AdminTheme.cream.opacity(0.95)
 
     var body: some View {
         Text(BookingDisplay.formattedDayHeader(for: date))
@@ -44,7 +75,7 @@ struct BookingsDaySectionHeader: View {
             .foregroundStyle(AdminTheme.stone700)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, AdminTheme.Spacing.stickyHeaderVertical)
-            .background(AdminTheme.cream.opacity(0.95))
+            .background(surface)
             .overlay(alignment: .bottom) {
                 Rectangle()
                     .fill(AdminTheme.stone200)

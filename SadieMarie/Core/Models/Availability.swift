@@ -54,6 +54,12 @@ struct OverrideRow: Identifiable, Hashable, Equatable {
         return AvailabilityTimeFormat.hhmm(from: start) < AvailabilityTimeFormat.hhmm(from: end)
     }
 
+    /// One-line hours for the compact override list.
+    var hoursSummary: String {
+        if unavailable { return "Closed" }
+        return "\(AvailabilityTimeFormat.displayTime(start)) – \(AvailabilityTimeFormat.displayTime(end))"
+    }
+
     static func make(
         id: String = UUID().uuidString,
         date: Date = Calendar.current.startOfDay(for: Date()),
@@ -168,12 +174,36 @@ enum AvailabilityTimeFormat {
         return formatter
     }()
 
+    private static let overrideWeekdayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeZone = TimeZone(identifier: "America/Denver")
+        formatter.dateFormat = "EEE"
+        return formatter
+    }()
+
+    private static let overrideMonthDayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeZone = TimeZone(identifier: "America/Denver")
+        formatter.dateFormat = "MMM d"
+        return formatter
+    }()
+
     static func displayTime(_ date: Date) -> String {
         shortTimeFormatter.string(from: date)
     }
 
     static func displayDate(_ date: Date) -> String {
         mediumDateFormatter.string(from: date)
+    }
+
+    /// Compact override list: weekday in Denver (`MON`).
+    static func displayOverrideWeekday(_ date: Date) -> String {
+        overrideWeekdayFormatter.string(from: date).uppercased()
+    }
+
+    /// Compact override list: month and day (`Sep 29`).
+    static func displayOverrideMonthDay(_ date: Date) -> String {
+        overrideMonthDayFormatter.string(from: date)
     }
 
     /// Quarter-hour slots from 5:00 AM through 10:45 PM on `reference` day.

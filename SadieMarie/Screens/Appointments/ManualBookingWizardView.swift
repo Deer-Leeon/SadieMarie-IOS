@@ -4,6 +4,8 @@ import SwiftUI
 struct ManualBookingWizardView: View {
     let bookingDate: Date
     var prefilledClient: Client?
+    var seedHour: Int?
+    var modeSwitch: AnyView?
     var onClose: () -> Void
     var onSuccess: () -> Void
 
@@ -14,16 +16,21 @@ struct ManualBookingWizardView: View {
     init(
         bookingDate: Date,
         prefilledClient: Client? = nil,
+        seedHour: Int? = nil,
+        modeSwitch: AnyView? = nil,
         onClose: @escaping () -> Void,
         onSuccess: @escaping () -> Void
     ) {
         self.bookingDate = bookingDate
         self.prefilledClient = prefilledClient
+        self.seedHour = seedHour
+        self.modeSwitch = modeSwitch
         self.onClose = onClose
         self.onSuccess = onSuccess
         _viewModel = State(
             initialValue: ManualBookingViewModel(
                 initialDate: bookingDate,
+                seedHour: seedHour,
                 prefilledClient: prefilledClient
             )
         )
@@ -165,6 +172,11 @@ struct ManualBookingWizardView: View {
                     .font(AdminTheme.fontAdminSans(size: 13))
                     .foregroundStyle(AdminTheme.stone600)
                     .lineLimit(2)
+
+                if let modeSwitch {
+                    modeSwitch
+                        .padding(.top, 6)
+                }
             }
 
             Spacer(minLength: 8)
@@ -444,13 +456,20 @@ struct ManualBookingWizardView: View {
             viewModel.selectService(service)
         } label: {
             HStack(alignment: .top, spacing: 12) {
-                selectionIndicator(active: active)
-                    .padding(.top, 2)
+                if active {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(AdminTheme.cream)
+                        .padding(.top, 2)
+                } else {
+                    selectionIndicator(active: false)
+                        .padding(.top, 2)
+                }
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(service.title)
                         .font(AdminTheme.fontAdminSerif(size: indented ? 16 : 17))
-                        .foregroundStyle(AdminTheme.stone900)
+                        .foregroundStyle(active ? AdminTheme.cream : AdminTheme.stone900)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -458,7 +477,7 @@ struct ManualBookingWizardView: View {
                         Text(service.detailMetaLine)
                             .font(AdminTheme.fontAdminSans(size: 11, weight: .medium))
                             .tracking(0.5)
-                            .foregroundStyle(AdminTheme.stone500)
+                            .foregroundStyle(active ? AdminTheme.stone300 : AdminTheme.stone500)
                             .textCase(.uppercase)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -466,7 +485,7 @@ struct ManualBookingWizardView: View {
                     if active, !service.description.isEmpty {
                         Text(service.description)
                             .font(AdminTheme.fontAdminSans(size: 13))
-                            .foregroundStyle(AdminTheme.stone600)
+                            .foregroundStyle(AdminTheme.stone300)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -477,14 +496,16 @@ struct ManualBookingWizardView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(active ? AdminTheme.stone50 : AdminTheme.cardFill)
+            .background(active ? AdminTheme.stone900 : AdminTheme.cardFill)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(active ? AdminTheme.stone900 : AdminTheme.stone200, lineWidth: active ? 1.5 : 1)
+                    .stroke(active ? AdminTheme.stone900 : AdminTheme.stone200, lineWidth: 1)
             )
+            .shadow(color: active ? AdminTheme.stone900.opacity(0.18) : .clear, radius: 2, y: 1)
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(active ? .isSelected : [])
         .animation(.easeInOut(duration: 0.18), value: active)
     }
 

@@ -39,6 +39,8 @@ enum DayName: String, CaseIterable, Identifiable, Hashable, Sendable {
         }
     }
 
+    var shortTitle: String { String(title.prefix(3)) }
+
     var apiDayName: String { title }
 
     static func from(index: Int) -> DayName {

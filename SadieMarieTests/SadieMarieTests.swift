@@ -34,6 +34,54 @@ final class SadieMarieTests: XCTestCase {
         XCTAssertEqual(blocks[1].endTime, "14:00")
     }
 
+    func testDayNameShortTitle() {
+        XCTAssertEqual(DayName.monday.shortTitle, "Mon")
+        XCTAssertEqual(DayName.thursday.shortTitle, "Thu")
+    }
+
+    func testAvailabilitySnapshotStoreRoundTrip() {
+        let key = "admin.availability.lastResponse.v1"
+        let previous = UserDefaults.standard.data(forKey: key)
+        defer {
+            if let previous {
+                UserDefaults.standard.set(previous, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+
+        AvailabilitySnapshotStore.save(Data(AvailabilityResponse.previewJSON.utf8))
+        let loaded = AvailabilitySnapshotStore.load()
+        XCTAssertEqual(loaded?.resolvedScheduleId, 1)
+        XCTAssertEqual(loaded?.schedule.availability.count, 2)
+    }
+
+    func testOverrideHoursSummaryAndCompactDate() {
+        var closed = OverrideRow.make(
+            date: AvailabilityTimeFormat.date(fromYYYYMMDD: "2026-09-14") ?? Date(),
+            unavailable: true
+        )
+        XCTAssertEqual(closed.hoursSummary, "Closed")
+
+        let customDay = Date(timeIntervalSince1970: 1_790_704_800) // 2026-09-29 18:00 UTC
+        closed = OverrideRow.make(
+            date: customDay,
+            unavailable: false,
+            start: AvailabilityTimeFormat.time(hour: 11, minute: 0, on: customDay),
+            end: AvailabilityTimeFormat.time(hour: 20, minute: 0, on: customDay)
+        )
+        XCTAssertTrue(closed.hoursSummary.contains("11"))
+        XCTAssertTrue(closed.hoursSummary.contains("8"))
+        XCTAssertEqual(
+            AvailabilityTimeFormat.displayOverrideWeekday(customDay),
+            "TUE"
+        )
+        XCTAssertEqual(
+            AvailabilityTimeFormat.displayOverrideMonthDay(customDay),
+            "Sep 29"
+        )
+    }
+
     func testDecodeFlatAvailabilityResponseWithScheduleId() throws {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -281,6 +329,49 @@ final class SadieMarieTests: XCTestCase {
         XCTAssertEqual(client.formattedPhone, "")
     }
 
+    func testPhoneFormatAsYouType() {
+        XCTAssertEqual(ClientPhone.formatAsYouType("8"), "(8")
+        XCTAssertEqual(ClientPhone.formatAsYouType("801"), "(801)")
+        XCTAssertEqual(ClientPhone.formatAsYouType("801555"), "(801) 555")
+        XCTAssertEqual(ClientPhone.formatAsYouType("8015551234"), "(801) 555-1234")
+        XCTAssertEqual(ClientPhone.formatAsYouType("18015551234"), "(801) 555-1234")
+    }
+
+    func testSlotMatchesStudioHour() {
+        // 16:00 UTC is 10:00 AM America/Denver during MDT.
+        XCTAssertTrue(
+            StudioTime.slotMatchesStudioHour(isoUtc: "2026-09-03T16:00:00.000Z", hour: 10)
+        )
+        XCTAssertFalse(
+            StudioTime.slotMatchesStudioHour(isoUtc: "2026-09-03T16:00:00.000Z", hour: 9)
+        )
+        XCTAssertFalse(
+            StudioTime.slotMatchesStudioHour(isoUtc: "not-a-date", hour: 10)
+        )
+    }
+
+    func testClientDecodesTechnicianReview() throws {
+        let json = """
+        {
+          "id": "b83f3a4c-30df-45e6-8f22-17fb19d6ffc4",
+          "first_name": "Leon",
+          "has_consented": true,
+          "consent_form_url": "https://blob.vercel-storage.com/consent.pdf",
+          "consent_technician_reviewed_at": "2026-08-29T18:00:00.000Z"
+        }
+        """
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let client = try decoder.decode(Client.self, from: Data(json.utf8))
+        XCTAssertEqual(client.hasConsented, true)
+        XCTAssertNotNil(client.stampedConsentPdfURL)
+        XCTAssertNotNil(client.technicianReviewedDate)
+        XCTAssertEqual(
+            client.consentDocumentURL?.absoluteString,
+            "https://www.sadiemarie.co/consent/b83f3a4c-30df-45e6-8f22-17fb19d6ffc4/document"
+        )
+    }
+
     func testSiteImageSlotDecodesUploadResponseURL() throws {
         let json = """
         {"id":"home_hero","url":"https://blob.vercel-storage.com/hero-abc.jpg"}
@@ -471,6 +562,101 @@ final class SadieMarieTests: XCTestCase {
         XCTAssertEqual(laidOut.count, 2)
         XCTAssertEqual(Set(laidOut.map(\.col)), [0, 1])
         XCTAssertEqual(laidOut.first?.totalCols, 2)
+    }
+
+    func testTimelineBackToBackBookingsStayFullWidth() {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)!
+        let day = StudioTime.calendar.date(from: DateComponents(year: 2026, month: 9, day: 12))!
+
+        func apt(id: String, hour: Int, minute: Int, durationMinutes: Int, endJitterMs: Double = 0) -> Appointment {
+            let calendar = StudioTime.calendar
+            var start = DateComponents()
+            start.year = 2026
+            start.month = 9
+            start.day = 12
+            start.hour = hour
+            start.minute = minute
+            let startDate = calendar.date(from: start)!
+            let endDate = startDate
+                .addingTimeInterval(TimeInterval(durationMinutes * 60) + endJitterMs / 1000)
+            return Appointment(
+                id: id,
+                clientFirstName: "Abby",
+                clientLastName: "Nash",
+                bookingTime: formatter.string(from: startDate),
+                endTime: formatter.string(from: endDate),
+                serviceName: "Brow Shape",
+                status: AppointmentStatus.confirmed.rawValue
+            )
+        }
+
+        let sequential = [
+            apt(id: "a", hour: 14, minute: 30, durationMinutes: 30, endJitterMs: 400),
+            apt(id: "b", hour: 15, minute: 0, durationMinutes: 30),
+            apt(id: "c", hour: 15, minute: 30, durationMinutes: 30),
+        ]
+        let laidOut = TimelineEngine.layoutForDay(date: day, appointments: sequential)
+        XCTAssertEqual(laidOut.count, 3)
+        XCTAssertEqual(Set(laidOut.map(\.col)), [0])
+        XCTAssertEqual(Set(laidOut.map(\.totalCols)), [1])
+    }
+
+    func testColumnLaneFrameSplitsWidthEvenly() {
+        let left = TimelineEngine.columnLaneFrame(
+            col: 0, totalCols: 2, columnWidth: 200, outer: 2, gap: 2
+        )
+        let right = TimelineEngine.columnLaneFrame(
+            col: 1, totalCols: 2, columnWidth: 200, outer: 2, gap: 2
+        )
+        XCTAssertEqual(left.width, right.width, accuracy: 0.01)
+        XCTAssertEqual(left.leading, 2, accuracy: 0.01)
+        XCTAssertEqual(right.leading, left.leading + left.width + 2, accuracy: 0.01)
+        XCTAssertEqual(left.leading + left.width * 2 + 2 + 2, 200, accuracy: 0.01)
+
+        let solo = TimelineEngine.columnLaneFrame(
+            col: 0, totalCols: 1, columnWidth: 200, outer: 8, gap: 0
+        )
+        XCTAssertEqual(solo.leading, 8, accuracy: 0.01)
+        XCTAssertEqual(solo.width, 184, accuracy: 0.01)
+    }
+
+    func testDailyGridFitsAvailableHeightWithNinePmCaption() {
+        let available: CGFloat = 580
+        let hourHeight = BookingsCalendarLayout.hourHeight(inAvailableHeight: available)
+        XCTAssertEqual(
+            BookingsCalendarLayout.gridBodyHeight(hourHeight: hourHeight),
+            available,
+            accuracy: 0.01
+        )
+        XCTAssertGreaterThan(hourHeight, 8)
+    }
+
+    func testDailyModalTopGutterLeavesRoomForNineAmLabel() {
+        let total: CGFloat = 580
+        let topGutter = BookingsCalendarLayout.dayModalTopGutter
+        let hourHeight = BookingsCalendarLayout.hourHeight(
+            inAvailableHeight: total - topGutter
+        )
+        XCTAssertGreaterThanOrEqual(topGutter, 16)
+        XCTAssertEqual(
+            topGutter + BookingsCalendarLayout.gridBodyHeight(hourHeight: hourHeight),
+            total,
+            accuracy: 0.01
+        )
+    }
+
+    func testManualBookingSlotsParserReadsOccupiedStarts() {
+        let iso = "2026-09-03T15:00:00.000Z"
+        let json = """
+        {"slots":{"2026-09-03":["\(iso)"]},"occupied":["\(iso)"]}
+        """
+        let occupied = ManualBookingSlotsParser.occupiedStartMs(from: Data(json.utf8))
+        XCTAssertEqual(occupied, [ManualBookingSlotsParser.epochMs(isoUtc: iso)!])
+        XCTAssertTrue(
+            ManualBookingSlotsParser.occupiedStartMs(from: Data("{\"slots\":{}}".utf8)).isEmpty
+        )
     }
 
     func testDecodeTimeBlocksResponse() throws {
@@ -744,6 +930,43 @@ final class SadieMarieTests: XCTestCase {
         XCTAssertFalse(response.payment?.isSettled == true)
     }
 
+    func testTerminalDiscountAndCustomAmountHelpers() throws {
+        XCTAssertEqual(TerminalDiscount.apply(quotedCents: 7000, percent: 0), 7000)
+        XCTAssertEqual(TerminalDiscount.apply(quotedCents: 7000, percent: 10), 6300)
+        XCTAssertEqual(TerminalDiscount.apply(quotedCents: 7000, percent: 20), 5600)
+        XCTAssertEqual(TerminalDiscount.apply(quotedCents: 7000, percent: 50), 3500)
+        XCTAssertEqual(TerminalDiscount.parseDollarsToCents("70"), 7000)
+        XCTAssertEqual(TerminalDiscount.parseDollarsToCents("$70.50"), 7050)
+        XCTAssertNil(TerminalDiscount.parseDollarsToCents("abc"))
+        XCTAssertTrue(TerminalDiscount.isValidCustomAmountCents(50))
+        XCTAssertFalse(TerminalDiscount.isValidCustomAmountCents(49))
+
+        let discountBody = try JSONSerialization.jsonObject(
+            with: TerminalStartRequest.discount(20).encodedJSON()
+        ) as? [String: Any]
+        XCTAssertEqual(discountBody?["discount_percent"] as? Int, 20)
+        XCTAssertNil(discountBody?["custom_amount_cents"])
+        XCTAssertNil(discountBody?["additional_appointment_ids"])
+
+        let customBody = try JSONSerialization.jsonObject(
+            with: TerminalStartRequest.custom(cents: 4500).encodedJSON()
+        ) as? [String: Any]
+        XCTAssertEqual(customBody?["custom_amount_cents"] as? Int, 4500)
+        XCTAssertNil(customBody?["discount_percent"])
+
+        let groupedBody = try JSONSerialization.jsonObject(
+            with: TerminalStartRequest.discount(
+                0,
+                additionalAppointmentIds: ["apt-2", "apt-3"]
+            ).encodedJSON()
+        ) as? [String: Any]
+        XCTAssertEqual(groupedBody?["discount_percent"] as? Int, 0)
+        XCTAssertEqual(
+            groupedBody?["additional_appointment_ids"] as? [String],
+            ["apt-2", "apt-3"]
+        )
+    }
+
     func testTimeBlockPatchPayloadIncludesWindowAndOptionalNote() throws {
         let payload = TimeBlockUpdateRequest(
             start: "2026-08-10T18:00:00.000Z",
@@ -778,5 +1001,173 @@ final class SadieMarieTests: XCTestCase {
         XCTAssertNil(viewModel.selectedDate)
         XCTAssertNil(viewModel.selectedSlot)
         XCTAssertEqual(viewModel.step, .service)
+    }
+
+    func testAdminPushPayloadParsesAppointmentId() {
+        XCTAssertEqual(
+            AdminPushPayload.appointmentId(from: ["appointmentId": "appt-42"]),
+            "appt-42"
+        )
+        XCTAssertEqual(
+            AdminPushPayload.appointmentId(from: ["appointmentId": NSNumber(value: 7)]),
+            "7"
+        )
+        XCTAssertNil(AdminPushPayload.appointmentId(from: ["bookingUid": "abc"]))
+        XCTAssertNil(AdminPushPayload.appointmentId(from: ["appointmentId": "  "]))
+    }
+
+    func testAdminPushPayloadRecognizesConfirmedBookingPush() {
+        XCTAssertTrue(
+            AdminPushPayload.isConfirmedBookingPush(["appointmentId": "appt-1"])
+        )
+        XCTAssertTrue(
+            AdminPushPayload.isConfirmedBookingPush(["bookingUid": "cal_uid"])
+        )
+        XCTAssertFalse(
+            AdminPushPayload.isConfirmedBookingPush(["aps": ["alert": "hi"]])
+        )
+    }
+
+    func testIncomingBookingPushRefreshesCalendarWithoutOpeningSheet() {
+        let push = PushRegistration.shared
+        push.pendingOpenAppointmentId = nil
+        let before = push.liveDataRevision
+
+        push.handleIncomingBookingPush(userInfo: ["appointmentId": "appt-live"])
+
+        XCTAssertEqual(push.liveDataRevision, before + 1)
+        XCTAssertNil(push.pendingOpenAppointmentId)
+    }
+
+    func testNotificationTapOpensAppointmentAndRefreshesCalendar() {
+        let push = PushRegistration.shared
+        push.pendingOpenAppointmentId = nil
+        let before = push.liveDataRevision
+
+        push.handleNotificationTap(userInfo: ["appointmentId": "appt-tap"])
+
+        XCTAssertEqual(push.pendingOpenAppointmentId, "appt-tap")
+        XCTAssertEqual(push.liveDataRevision, before + 1)
+        _ = push.consumePendingOpenAppointmentId()
+    }
+
+    func testAdminPushPayloadHexEncodesDeviceToken() {
+        let token = Data([0x0A, 0xFF, 0x00, 0x1B])
+        XCTAssertEqual(AdminPushPayload.hexDeviceToken(token), "0aff001b")
+    }
+
+    func testForbiddenPushRegisterIsNotRetried() {
+        XCTAssertTrue(AdminAPIError.forbidden.isNonRetryableAuthFailure)
+        XCTAssertFalse(AdminAPIError.unauthorized.isNonRetryableAuthFailure)
+        XCTAssertFalse(AdminAPIError.noActiveSession.isNonRetryableAuthFailure)
+    }
+
+    func testCurrentRangeStartForThreeDayIsToday() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = calendar.date(from: DateComponents(year: 2026, month: 8, day: 29, hour: 18))!
+        let start = BookingDisplay.CalendarFormatting.currentRangeStart(
+            mode: .threeDay,
+            now: now,
+            calendar: calendar
+        )
+        XCTAssertTrue(calendar.isDate(start, inSameDayAs: now))
+    }
+
+    func testCurrentRangeStartForWeekIsWeekContainingToday() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.firstWeekday = 1
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = calendar.date(from: DateComponents(year: 2026, month: 8, day: 29, hour: 18))!
+        let start = BookingDisplay.CalendarFormatting.currentRangeStart(
+            mode: .week,
+            now: now,
+            calendar: calendar
+        )
+        let week = calendar.dateInterval(of: .weekOfYear, for: now)
+        XCTAssertEqual(start, week?.start)
+        XCTAssertTrue(
+            BookingDisplay.CalendarFormatting.rangeContainsToday(
+                mode: .week,
+                rangeStart: start,
+                now: now,
+                calendar: calendar
+            )
+        )
+    }
+
+    func testThreeDayRangeContainsTodayOnlyForCurrentWindow() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let today = calendar.date(from: DateComponents(year: 2026, month: 8, day: 29))!
+        XCTAssertTrue(
+            BookingDisplay.CalendarFormatting.rangeContainsToday(
+                mode: .threeDay,
+                rangeStart: today,
+                now: today,
+                calendar: calendar
+            )
+        )
+        let earlier = calendar.date(byAdding: .day, value: -3, to: today)!
+        XCTAssertFalse(
+            BookingDisplay.CalendarFormatting.rangeContainsToday(
+                mode: .threeDay,
+                rangeStart: earlier,
+                now: today,
+                calendar: calendar
+            )
+        )
+    }
+
+    func testGridBlockHeightLandsOnHourLine() {
+        let calendar = StudioTime.calendar
+        let start = calendar.date(
+            from: DateComponents(year: 2026, month: 8, day: 31, hour: 15, minute: 30)
+        )!
+        let end = calendar.date(
+            from: DateComponents(year: 2026, month: 8, day: 31, hour: 17, minute: 0)
+        )!
+        let hourHeight: CGFloat = 44
+        let y = BookingDisplay.CalendarFormatting.yOffset(
+            for: start,
+            hourHeight: hourHeight,
+            calendar: calendar
+        )
+        let height = BookingDisplay.CalendarFormatting.blockHeight(
+            start: start,
+            end: end,
+            hourHeight: hourHeight
+        )
+        // 3:30 PM is 6.5 hours after 9 AM; 5:00 PM is 8 hours after 9 AM.
+        XCTAssertEqual(y, 6.5 * hourHeight, accuracy: 0.01)
+        XCTAssertEqual(height, 1.5 * hourHeight, accuracy: 0.01)
+        XCTAssertEqual(y + height, 8 * hourHeight, accuracy: 0.01)
+    }
+
+    func testUpcomingAppointmentUsesEndTime() {
+        let now = Date()
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        let inProgress = Appointment(
+            id: "now",
+            bookingTime: formatter.string(from: now.addingTimeInterval(-30 * 60)),
+            endTime: formatter.string(from: now.addingTimeInterval(30 * 60))
+        )
+        let justEnded = Appointment(
+            id: "past",
+            bookingTime: formatter.string(from: now.addingTimeInterval(-90 * 60)),
+            endTime: formatter.string(from: now.addingTimeInterval(-1))
+        )
+        let laterToday = Appointment(
+            id: "next",
+            bookingTime: formatter.string(from: now.addingTimeInterval(60 * 60)),
+            endTime: formatter.string(from: now.addingTimeInterval(150 * 60))
+        )
+
+        XCTAssertTrue(BookingDisplay.isUpcoming(inProgress, now: now))
+        XCTAssertFalse(BookingDisplay.isUpcoming(justEnded, now: now))
+        XCTAssertTrue(BookingDisplay.isUpcoming(laterToday, now: now))
     }
 }

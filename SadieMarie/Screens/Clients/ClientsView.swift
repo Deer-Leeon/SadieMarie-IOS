@@ -4,8 +4,10 @@ import ClerkKit
 /// Clients tab — searchable CRM directory (mirrors `/admin/clients`).
 struct ClientsView: View {
     @Environment(Clerk.self) private var clerk
-    @State private var viewModel = ClientsViewModel()
+    @Environment(PushRegistration.self) private var pushRegistration
+    @Bindable var viewModel: ClientsViewModel
     @State private var selectedClient: Client?
+    @State private var showAddClient = false
 
     var body: some View {
         NavigationStack {
@@ -43,12 +45,18 @@ struct ClientsView: View {
             .toolbar(.hidden, for: .navigationBar)
             .preferredColorScheme(.light)
             .task(id: clerk.session?.id) {
-                guard clerk.session != nil else { return }
+                guard clerk.session != nil, !viewModel.hasLoaded else { return }
                 await viewModel.load()
+            }
+            .onChange(of: pushRegistration.liveDataRevision) { _, _ in
+                Task {
+                    guard clerk.session != nil else { return }
+                    await viewModel.load(showLoading: false)
+                }
             }
             .refreshable {
                 guard clerk.session != nil else { return }
-                await viewModel.load()
+                await viewModel.load(showLoading: false)
             }
             .navigationDestination(item: $selectedClient) { client in
                 ClientProfileView(
@@ -56,10 +64,21 @@ struct ClientsView: View {
                     backLabel: "Clients",
                     onBack: { selectedClient = nil },
                     onClose: { selectedClient = nil },
-                    onMutated: { Task { await viewModel.load() } },
+                    onMutated: { Task { await viewModel.load(showLoading: false) } },
                     onClientUpdated: { updated in
                         viewModel.upsert(updated)
                         selectedClient = updated
+                    },
+                    embedInNavigationStack: false
+                )
+            }
+            .sheet(isPresented: $showAddClient) {
+                AddClientSheet(
+                    onCancel: { showAddClient = false },
+                    onCreated: { client in
+                        viewModel.upsert(client)
+                        showAddClient = false
+                        selectedClient = client
                     }
                 )
             }
@@ -67,10 +86,34 @@ struct ClientsView: View {
     }
 
     private var headerBlock: some View {
-        Text("Clients")
-            .font(AdminTheme.fontAdminSerif(size: 28))
-            .foregroundStyle(AdminTheme.stone900)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(alignment: .center) {
+            Text("Clients")
+                .font(AdminTheme.fontAdminSerif(size: 28))
+                .foregroundStyle(AdminTheme.stone900)
+
+            Spacer(minLength: 12)
+
+            Button {
+                showAddClient = true
+            } label: {
+                Text("New\nClient")
+                    .font(AdminTheme.fontAdminSans(size: 10, weight: .semibold))
+                    .tracking(1.2)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(AdminTheme.stone700)
+                    .textCase(.uppercase)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(AdminTheme.cardFill)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(AdminTheme.stone200, lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("New Client")
+        }
     }
 
     private var searchBar: some View {
@@ -154,6 +197,27 @@ struct ClientsView: View {
                         .font(AdminTheme.fontAdminSans(size: 13))
                         .foregroundStyle(AdminTheme.stone700)
                         .multilineTextAlignment(.center)
+
+                    if viewModel.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                       viewModel.errorMessage == nil {
+                        Button {
+                            showAddClient = true
+                        } label: {
+                            Text("New Client")
+                                .font(AdminTheme.fontAdminSans(size: 14, weight: .medium))
+                                .foregroundStyle(AdminTheme.stone900)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(AdminTheme.cream)
+                                .clipShape(Capsule())
+                                .overlay(
+                                    Capsule()
+                                        .stroke(AdminTheme.stone200, lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.top, 4)
+                    }
                 }
                 .padding(24)
                 .frame(maxWidth: .infinity)
@@ -187,7 +251,7 @@ struct ClientsView: View {
         if !viewModel.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "Try a different name, email, or phone number."
         }
-        return "Clients from your booking history will appear here."
+        return "Add people you already work with, or wait for bookings to come in. Saving a client does not text or email them."
     }
 
     private var loadingOverlay: some View {
@@ -212,5 +276,6 @@ struct ClientsView: View {
 }
 
 #Preview {
-    ClientsView()
+    ClientsView(viewModel: ClientsViewModel())
+        .environment(PushRegistration.shared)
 }

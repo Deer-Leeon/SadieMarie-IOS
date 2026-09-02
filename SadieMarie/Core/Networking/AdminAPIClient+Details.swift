@@ -301,6 +301,18 @@ extension AdminAPIClient {
 
     // MARK: - Appointment payments
 
+    func fetchSameDayUnsettled(appointmentId: String) async throws -> [SameDayUnsettledVisit] {
+        let encodedId = appointmentId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+            ?? appointmentId
+        let response = try await fetch(
+            "appointments/\(encodedId)/same-day-unsettled",
+            as: SameDayUnsettledResponse.self,
+            method: .get,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+        return response.appointments
+    }
+
     func startTerminalPayment(
         appointmentId: String,
         request: TerminalStartRequest
@@ -328,12 +340,16 @@ extension AdminAPIClient {
     func settleAppointment(
         appointmentId: String,
         method: AppointmentSettlementMethod,
-        note: String?
+        note: String?,
+        additionalAppointmentIds: [String]? = nil
     ) async throws -> SettlementOperationResult {
         let trimmedNote = note?.trimmingCharacters(in: .whitespacesAndNewlines)
         let payload = SettlementRequest(
             method: method,
-            note: trimmedNote?.isEmpty == false ? trimmedNote : nil
+            note: trimmedNote?.isEmpty == false ? trimmedNote : nil,
+            additionalAppointmentIds: additionalAppointmentIds?.isEmpty == false
+                ? additionalAppointmentIds
+                : nil
         )
         return try await settlementRequest(
             appointmentId: appointmentId,

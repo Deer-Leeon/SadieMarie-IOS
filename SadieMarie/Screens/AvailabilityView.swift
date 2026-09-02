@@ -4,7 +4,7 @@ import ClerkKit
 /// Availability tab — weekly hours + date overrides (mirrors `/admin/availability`).
 struct AvailabilityView: View {
     @Environment(Clerk.self) private var clerk
-    @State private var viewModel = AvailabilityViewModel()
+    @Bindable var viewModel: AvailabilityViewModel
 
     var body: some View {
         NavigationStack {
@@ -13,7 +13,7 @@ struct AvailabilityView: View {
 
                 ScrollViewReader { proxy in
                     ScrollView(.vertical, showsIndicators: true) {
-                        VStack(alignment: .leading, spacing: 18) {
+                        VStack(alignment: .leading, spacing: AdminTheme.Spacing.sectionBottom) {
                             headerBlock
 
                             if let errorMessage = viewModel.errorMessage {
@@ -32,8 +32,8 @@ struct AvailabilityView: View {
                             AvailabilityOverridesSection(viewModel: viewModel)
                         }
                         .padding(.horizontal, AdminTheme.Spacing.listHorizontal)
-                        .padding(.top, 4)
-                        .padding(.bottom, 12)
+                        .padding(.top, 10)
+                        .padding(.bottom, 28)
                     }
                     .scrollBounceBehavior(.basedOnSize, axes: .vertical)
                     .onChange(of: viewModel.highlightedOverrideId) { _, id in
@@ -51,7 +51,8 @@ struct AvailabilityView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
             .preferredColorScheme(.light)
-            .safeAreaInset(edge: .bottom) {
+            .toolbarColorScheme(.light, for: .tabBar)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
                 AvailabilitySaveBar(
                     hasChanges: viewModel.hasUnsavedChanges,
                     hasInvalidOverrides: viewModel.hasInvalidOverrides,
@@ -60,12 +61,12 @@ struct AvailabilityView: View {
                 )
             }
             .task(id: clerk.session?.id) {
-                guard clerk.session != nil else { return }
+                guard clerk.session != nil, !viewModel.hasLoaded else { return }
                 await viewModel.load()
             }
             .refreshable {
                 guard clerk.session != nil else { return }
-                await viewModel.load()
+                await viewModel.load(showLoading: false)
             }
         }
     }
@@ -116,5 +117,5 @@ struct AvailabilityView: View {
 }
 
 #Preview {
-    AvailabilityView()
+    AvailabilityView(viewModel: AvailabilityViewModel())
 }

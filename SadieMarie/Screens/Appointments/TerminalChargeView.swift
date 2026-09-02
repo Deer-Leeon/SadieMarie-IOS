@@ -5,7 +5,8 @@ import SwiftUI
 struct TerminalChargeView: View {
     let appointment: Appointment
     let initialPayment: AppointmentPaymentSummary?
-    var onPaymentChanged: (AppointmentPaymentSummary?) -> Void
+    var knownAppointments: [Appointment] = []
+    var onPaymentChanged: (AppointmentPaymentSummary?, [String]) -> Void
     var onClose: () -> Void
 
     @State private var payment: AppointmentPaymentSummary?
@@ -13,18 +14,67 @@ struct TerminalChargeView: View {
     @State private var errorMessage: String?
     @State private var isSubmitting = false
     @State private var showAttemptResult = false
+    @State private var amountMode: TerminalAmountMode = .discount(percent: 0)
+    @State private var customDollars: String
+    @State private var siblings: [SameDayUnsettledVisit] = []
+    @State private var selectedExtraIds: Set<String> = []
+    @FocusState private var customAmountFocused: Bool
 
     init(
         appointment: Appointment,
         initialPayment: AppointmentPaymentSummary?,
-        onPaymentChanged: @escaping (AppointmentPaymentSummary?) -> Void,
+        knownAppointments: [Appointment] = [],
+        onPaymentChanged: @escaping (AppointmentPaymentSummary?, [String]) -> Void,
         onClose: @escaping () -> Void
     ) {
         self.appointment = appointment
         self.initialPayment = initialPayment
+        self.knownAppointments = knownAppointments
         self.onPaymentChanged = onPaymentChanged
         self.onClose = onClose
         _payment = State(initialValue: initialPayment)
+        let quoted = TerminalDiscount.quotedCents(fromServicePrice: appointment.servicePrice)
+        _customDollars = State(
+            initialValue: TerminalDiscount.formatCentsAsDollarInput(quoted)
+        )
+    }
+
+    private var extraIds: [String] {
+        siblings.filter { selectedExtraIds.contains($0.id) }.map(\.id)
+    }
+
+    private var relatedIds: [String] {
+        [appointment.id] + extraIds
+    }
+
+    private var quotedCents: Int {
+        let primary = TerminalDiscount.quotedCents(fromServicePrice: appointment.servicePrice)
+        let extras = siblings
+            .filter { selectedExtraIds.contains($0.id) }
+            .reduce(0) { $0 + $1.quotedCents }
+        return primary + extras
+    }
+
+    private var customCents: Int? {
+        TerminalDiscount.parseDollarsToCents(customDollars)
+    }
+
+    private var chargeCents: Int {
+        switch amountMode {
+        case .custom:
+            return customCents ?? 0
+        case .discount(let percent):
+            return TerminalDiscount.apply(quotedCents: quotedCents, percent: percent)
+        }
+    }
+
+    private var canSend: Bool {
+        switch amountMode {
+        case .custom:
+            return customCents.map(TerminalDiscount.isValidCustomAmountCents) ?? false
+        case .discount:
+            return chargeCents >= TerminalDiscount.minimumChargeCents
+        }
     }
 
     private var isSucceeded: Bool {
@@ -79,15 +129,21 @@ struct TerminalChargeView: View {
             }
             .toolbarBackground(AdminTheme.cream, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+            .scrollDismissesKeyboard(.interactively)
         }
         .tint(AdminTheme.stone900)
         .preferredColorScheme(.light)
         .task {
-            await startAutomaticallyIfNeeded()
+            await loadSiblings()
         }
         .task(id: isActive) {
             guard isActive else { return }
             await pollWhileActive()
+        }
+        .onChange(of: quotedCents) { _, newValue in
+            if amountMode != .custom {
+                customDollars = TerminalDiscount.formatCentsAsDollarInput(newValue)
+            }
         }
     }
 
@@ -106,21 +162,171 @@ struct TerminalChargeView: View {
     private var readyContent: some View {
         VStack(spacing: 16) {
             VStack(spacing: 6) {
-                Text("Ready for the S710")
-                    .font(AdminTheme.fontAdminSerif(size: 24))
+                Text("In-person payment")
+                    .font(AdminTheme.fontAdminSans(size: 11, weight: .medium))
+                    .tracking(2)
+                    .foregroundStyle(AdminTheme.stone500)
+                    .textCase(.uppercase)
+
+                Text(BookingDisplay.formattedCents(chargeCents))
+                    .font(AdminTheme.fontAdminSerif(size: 36))
                     .foregroundStyle(AdminTheme.stone900)
-                Text("Send the exact service price to the reader. Your client can choose a tip and tap or insert their card.")
-                    .font(AdminTheme.fontAdminSans(size: 14))
-                    .foregroundStyle(AdminTheme.stone700)
-                    .multilineTextAlignment(.center)
+
+                amountSubtitle
+
+                Text(
+                    "\(BookingDisplay.appointmentServiceLabel(appointment)) for \(BookingDisplay.clientDisplayName(first: appointment.clientFirstName, last: appointment.clientLastName))"
+                )
+                .font(AdminTheme.fontAdminSans(size: 14))
+                .foregroundStyle(AdminTheme.stone700)
+                .multilineTextAlignment(.center)
             }
 
-            amountCard
+            SameDayVisitChecklist(
+                primary: appointment,
+                siblings: siblings,
+                selectedExtraIds: selectedExtraIds,
+                disabled: isSubmitting
+            ) { id in
+                if selectedExtraIds.contains(id) {
+                    selectedExtraIds.remove(id)
+                } else {
+                    selectedExtraIds.insert(id)
+                }
+            }
+
+            amountPicker
+
+            Text("Choose full price, a discount, or a custom amount. The reader will still offer tip options.")
+                .font(AdminTheme.fontAdminSans(size: 12))
+                .foregroundStyle(AdminTheme.stone500)
+                .multilineTextAlignment(.center)
 
             primaryButton(title: isSubmitting ? "Sending…" : "Send to terminal") {
                 Task { await startPayment() }
             }
-            .disabled(isSubmitting)
+            .disabled(isSubmitting || !canSend)
+            .opacity(canSend ? 1 : 0.5)
+        }
+    }
+
+    @ViewBuilder
+    private var amountSubtitle: some View {
+        switch amountMode {
+        case .custom:
+            if quotedCents > 0 {
+                Text("Custom amount · quoted \(BookingDisplay.formattedCents(quotedCents))")
+                    .font(AdminTheme.fontAdminSans(size: 13))
+                    .foregroundStyle(AdminTheme.stone500)
+            } else {
+                Text("Custom amount")
+                    .font(AdminTheme.fontAdminSans(size: 13))
+                    .foregroundStyle(AdminTheme.stone500)
+            }
+        case .discount(let percent) where percent > 0:
+            HStack(spacing: 6) {
+                Text(BookingDisplay.formattedCents(quotedCents))
+                    .strikethrough()
+                Text("·")
+                Text("\(percent)% off")
+            }
+            .font(AdminTheme.fontAdminSans(size: 13))
+            .foregroundStyle(AdminTheme.stone500)
+        default:
+            EmptyView()
+        }
+    }
+
+    private var amountPicker: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Amount")
+                .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
+                .tracking(1.8)
+                .foregroundStyle(AdminTheme.stone500)
+                .textCase(.uppercase)
+
+            HStack(spacing: 6) {
+                ForEach(TerminalDiscount.percents, id: \.self) { percent in
+                    amountPill(
+                        title: percent == 0 ? "Full" : "\(percent)%",
+                        selected: amountMode == .discount(percent: percent)
+                    ) {
+                        amountMode = .discount(percent: percent)
+                        customAmountFocused = false
+                    }
+                }
+                amountPill(title: "Custom", selected: amountMode == .custom) {
+                    amountMode = .custom
+                    if customDollars.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        customDollars = TerminalDiscount.formatCentsAsDollarInput(quotedCents)
+                    }
+                    customAmountFocused = true
+                }
+            }
+
+            if amountMode == .custom {
+                customAmountField
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func amountPill(
+        title: String,
+        selected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(AdminTheme.fontAdminSans(size: 11, weight: .semibold))
+                .foregroundStyle(selected ? Color.white : AdminTheme.stone700)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(selected ? AdminTheme.stone900 : AdminTheme.cardFill)
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .stroke(selected ? AdminTheme.stone900 : AdminTheme.stone200, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(isSubmitting)
+    }
+
+    private var customAmountField: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Charge amount (USD)")
+                .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
+                .tracking(1.4)
+                .foregroundStyle(AdminTheme.stone500)
+                .textCase(.uppercase)
+
+            HStack(spacing: 4) {
+                Text("$")
+                    .font(AdminTheme.fontAdminSans(size: 16))
+                    .foregroundStyle(AdminTheme.stone500)
+                TextField("0.00", text: $customDollars)
+                    .keyboardType(.decimalPad)
+                    .font(AdminTheme.fontAdminSans(size: 16))
+                    .foregroundStyle(AdminTheme.stone900)
+                    .focused($customAmountFocused)
+                    .disabled(isSubmitting)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .background(AdminTheme.cardFill)
+            .clipShape(RoundedRectangle(cornerRadius: AdminTheme.Radius.card))
+            .overlay(
+                RoundedRectangle(cornerRadius: AdminTheme.Radius.card)
+                    .stroke(AdminTheme.stone200, lineWidth: 1)
+            )
+
+            if !customDollars.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               !canSend {
+                Text("Enter an amount between $0.50 and $10,000.00")
+                    .font(AdminTheme.fontAdminSans(size: 12))
+                    .foregroundStyle(Color.semanticRed)
+            }
         }
     }
 
@@ -139,7 +345,7 @@ struct TerminalChargeView: View {
                 .foregroundStyle(readerIsOffline ? Color.semanticRed : AdminTheme.stone700)
                 .multilineTextAlignment(.center)
 
-            amountCard
+            amountCard(cents: payment?.baseAmountCents ?? chargeCents)
 
             Button(role: .destructive) {
                 Task { await cancelPayment() }
@@ -165,14 +371,30 @@ struct TerminalChargeView: View {
                 .foregroundStyle(AdminTheme.stone700)
                 .multilineTextAlignment(.center)
 
+            amountCard(cents: payment?.baseAmountCents ?? chargeCents)
+
+            Text("Retry sends the same amount to the reader again. Cancel first if you need a different amount.")
+                .font(AdminTheme.fontAdminSans(size: 12))
+                .foregroundStyle(AdminTheme.stone500)
+                .multilineTextAlignment(.center)
+
             primaryButton(title: isSubmitting ? "Sending…" : "Try reader again") {
                 Task { await retryPayment() }
+            }
+            .disabled(isSubmitting)
+
+            Button {
+                Task { await cancelThenResetToReady() }
+            } label: {
+                Text(isSubmitting ? "Canceling…" : "Change amount")
+                    .font(AdminTheme.fontAdminSans(size: 14, weight: .medium))
+                    .foregroundStyle(AdminTheme.stone700)
             }
             .disabled(isSubmitting)
         }
     }
 
-    private var amountCard: some View {
+    private func amountCard(cents: Int) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 3) {
                 Text(BookingDisplay.appointmentServiceLabel(appointment))
@@ -183,7 +405,7 @@ struct TerminalChargeView: View {
                     .foregroundStyle(AdminTheme.stone500)
             }
             Spacer()
-            Text(servicePriceLabel)
+            Text(BookingDisplay.formattedCents(cents, currency: payment?.currency))
                 .font(AdminTheme.fontAdminSerif(size: 20))
                 .foregroundStyle(AdminTheme.stone900)
         }
@@ -238,10 +460,6 @@ struct TerminalChargeView: View {
         .foregroundStyle(AdminTheme.stone900)
     }
 
-    private var servicePriceLabel: String {
-        BookingDisplay.formattedPrice(appointment.servicePrice) ?? "Price unavailable"
-    }
-
     private var readerStatusText: String {
         if readerIsOffline {
             return "The reader is offline. Reconnect it to Wi-Fi while status keeps checking."
@@ -275,16 +493,50 @@ struct TerminalChargeView: View {
             .clipShape(RoundedRectangle(cornerRadius: AdminTheme.Radius.card))
     }
 
-    private func startPayment() async {
-        await performOperation(automaticallyRetryFailedAttempt: true) {
-            try await AdminAPIClient.shared.startTerminalPayment(appointmentId: appointment.id)
+    private func startRequest() throws -> TerminalStartRequest {
+        switch amountMode {
+        case .custom:
+            guard let cents = customCents,
+                  TerminalDiscount.isValidCustomAmountCents(cents) else {
+                throw TerminalAmountError.invalidCustomAmount
+            }
+            return .custom(cents: cents, additionalAppointmentIds: extraIds)
+        case .discount(let percent):
+            return .discount(percent, additionalAppointmentIds: extraIds)
         }
     }
 
-    private func startAutomaticallyIfNeeded() async {
-        guard !isSucceeded, !isActive else { return }
-        showAttemptResult = false
-        await startPayment()
+    private func loadSiblings() async {
+        let local = SameDayUnsettledMatching.visits(
+            of: appointment,
+            among: knownAppointments
+        )
+        siblings = local
+        do {
+            let remote = try await AdminAPIClient.shared.fetchSameDayUnsettled(
+                appointmentId: appointment.id
+            )
+            siblings = SameDayUnsettledMatching.preferRemote(remote, local: local)
+        } catch {
+            siblings = local
+        }
+    }
+
+    private func startPayment() async {
+        let request: TerminalStartRequest
+        do {
+            request = try startRequest()
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+
+        await performOperation(automaticallyRetryFailedAttempt: true) {
+            try await AdminAPIClient.shared.startTerminalPayment(
+                appointmentId: appointment.id,
+                request: request
+            )
+        }
     }
 
     private func retryPayment() async {
@@ -303,6 +555,17 @@ struct TerminalChargeView: View {
         }
     }
 
+    /// Abandon the failed/canceled attempt so staff can pick a new amount and send again.
+    private func cancelThenResetToReady() async {
+        if payment?.status == .failed || payment?.status == .pending || payment?.status == .processing {
+            await performOperation(showResult: false) {
+                try await AdminAPIClient.shared.cancelTerminalPayment(appointmentId: appointment.id)
+            }
+        }
+        showAttemptResult = false
+        errorMessage = nil
+    }
+
     private func performOperation(
         showResult: Bool = true,
         automaticallyRetryFailedAttempt: Bool = false,
@@ -311,6 +574,9 @@ struct TerminalChargeView: View {
         guard !isSubmitting else { return }
         isSubmitting = true
         errorMessage = nil
+        if !showResult || automaticallyRetryFailedAttempt {
+            showAttemptResult = false
+        }
         defer { isSubmitting = false }
 
         do {
@@ -327,9 +593,14 @@ struct TerminalChargeView: View {
             }
 
             if let message = result.response.message, !result.succeeded {
-                errorMessage = message
+                let staleRetry = result.response.error == "retry_required"
+                if !staleRetry {
+                    errorMessage = message
+                }
             }
-            showAttemptResult = showResult
+            if showResult {
+                showAttemptResult = true
+            }
         } catch {
             errorMessage = error.localizedDescription
             showAttemptResult = payment?.status == .failed || payment?.status == .canceled
@@ -340,7 +611,8 @@ struct TerminalChargeView: View {
         reader = response.reader ?? reader
         if let updated = response.payment {
             payment = updated
-            onPaymentChanged(updated)
+            let ids = updated.status == .succeeded ? relatedIds : [appointment.id]
+            onPaymentChanged(updated, ids)
         }
     }
 
@@ -364,6 +636,17 @@ struct TerminalChargeView: View {
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+}
+
+private enum TerminalAmountError: LocalizedError {
+    case invalidCustomAmount
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidCustomAmount:
+            return "Enter an amount between $0.50 and $10,000.00"
         }
     }
 }

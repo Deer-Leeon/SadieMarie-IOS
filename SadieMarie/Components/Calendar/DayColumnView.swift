@@ -85,6 +85,7 @@ struct DayColumnBody: View {
                 pill
                     .padding(.leading, pill.leadingInset)
                     .padding(.top, pill.topInset)
+                    .zIndex(pill.laneZIndex)
             }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)

@@ -8,11 +8,21 @@ final class BookingsViewModel {
 
     private(set) var appointments: [Appointment] = []
     private(set) var timeBlocks: [TimeBlock] = []
+    private(set) var scheduleAvailability: [ScheduleAvailabilityBlock] = []
+    private(set) var scheduleOverrides: [ScheduleOverride] = []
+    /// False until a snapshot or live GET paints official hours (avoids all-gray flash).
+    private(set) var hasSchedule = false
+    private(set) var hasLoaded = false
     private(set) var isLoading = false
     private(set) var isCreatingBlock = false
     private(set) var isUpdatingBlock = false
     private(set) var removingBlockId: String?
     private(set) var errorMessage: String?
+    private let inFlightLoad = InFlightLoad()
+
+    init() {
+        seedScheduleFromSnapshotIfNeeded()
+    }
 
     /// List + single-day modal — excludes canceled; keeps pending and no-show.
     var visibleAppointments: [Appointment] {
@@ -24,26 +34,80 @@ final class BookingsViewModel {
         appointments.calendarAppointments
     }
 
-    func load() async {
-        isLoading = true
-        errorMessage = nil
+    /// - Parameter showLoading: Full-screen overlay. Live sync (push / poll /
+    ///   foreground) passes `false` so the calendar does not flash empty.
+    func load(showLoading: Bool = true) async {
+        let blockUI = showLoading && !hasLoaded
+        if blockUI {
+            isLoading = true
+            errorMessage = nil
+        }
 
-        defer { isLoading = false }
+        await inFlightLoad.run { [weak self] in
+            await self?.performLoad()
+        }
+        isLoading = false
+        hasLoaded = true
+    }
+
+    private func performLoad() async {
+        seedScheduleFromSnapshotIfNeeded()
+        async let scheduleResponse = fetchAvailabilityIgnoringErrors()
 
         do {
             async let bookingsResponse = AdminAPIClient.shared.fetchBookings()
             async let blocksResponse = AdminAPIClient.shared.fetchTimeBlocks()
             let response = try await bookingsResponse
             let blocks = try await blocksResponse
-            appointments = response.appointments
-            timeBlocks = blocks
+            if response.appointments != appointments {
+                appointments = response.appointments
+            }
+            if blocks != timeBlocks {
+                timeBlocks = blocks
+            }
+            errorMessage = nil
             AppLogger.syncInfo("Loaded \(appointments.count) appointments, \(blocks.count) time blocks.")
+        } catch is CancellationError {
+            return
         } catch let error as AdminAPIError {
             AppLogger.syncError("fetchBookings failed: \(error.localizedDescription)")
-            errorMessage = message(for: error)
+            if appointments.isEmpty {
+                errorMessage = message(for: error)
+            }
         } catch {
             AppLogger.syncError("fetchBookings failed: \(error.localizedDescription)")
-            errorMessage = error.localizedDescription
+            if appointments.isEmpty {
+                errorMessage = error.localizedDescription
+            }
+        }
+
+        applySchedule(await scheduleResponse)
+    }
+
+    private func seedScheduleFromSnapshotIfNeeded() {
+        guard !hasSchedule, let snapshot = AvailabilitySnapshotStore.load() else { return }
+        applySchedule(snapshot)
+    }
+
+    private func applySchedule(_ response: AvailabilityResponse?) {
+        guard let response else { return }
+        if scheduleAvailability != response.schedule.availability {
+            scheduleAvailability = response.schedule.availability
+        }
+        if scheduleOverrides != response.overrides {
+            scheduleOverrides = response.overrides
+        }
+        hasSchedule = true
+    }
+
+    private func fetchAvailabilityIgnoringErrors() async -> AvailabilityResponse? {
+        do {
+            return try await AdminAPIClient.shared.fetchAvailability()
+        } catch is CancellationError {
+            return nil
+        } catch {
+            AppLogger.syncError("fetchAvailability failed: \(error.localizedDescription)")
+            return nil
         }
     }
 
@@ -140,8 +204,14 @@ final class BookingsViewModel {
     }
 
     func applyPayment(appointmentId: String, payment: AppointmentPaymentSummary?) {
+        applyPayment(appointmentIds: [appointmentId], payment: payment)
+    }
+
+    func applyPayment(appointmentIds: [String], payment: AppointmentPaymentSummary?) {
+        guard !appointmentIds.isEmpty else { return }
+        let ids = Set(appointmentIds)
         appointments = appointments.map { appointment in
-            appointment.id == appointmentId
+            ids.contains(appointment.id)
                 ? appointment.withTerminalPayment(payment)
                 : appointment
         }

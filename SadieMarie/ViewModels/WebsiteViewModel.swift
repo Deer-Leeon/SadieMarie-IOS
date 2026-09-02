@@ -6,28 +6,46 @@ import Observation
 final class WebsiteViewModel {
 
     private(set) var slots: [WebsiteSlotItem] = WebsiteSlotItem.merged(from: [])
+    private(set) var hasLoaded = false
     private(set) var isLoading = false
     private(set) var isUploading = false
     private(set) var uploadingSlotID: String?
     private(set) var errorMessage: String?
     private(set) var saveSuccessMessage: String?
+    private let inFlightLoad = InFlightLoad()
 
-    func load() async {
-        isLoading = true
-        errorMessage = nil
+    func load(showLoading: Bool = true) async {
+        let blockUI = showLoading && !hasLoaded
+        if blockUI {
+            isLoading = true
+            errorMessage = nil
+        }
 
-        defer { isLoading = false }
+        await inFlightLoad.run { [weak self] in
+            await self?.performLoad()
+        }
+        isLoading = false
+        hasLoaded = true
+    }
 
+    private func performLoad() async {
         do {
             let apiSlots = try await AdminAPIClient.shared.fetchWebsiteSettings()
             slots = WebsiteSlotItem.merged(from: apiSlots)
+            errorMessage = nil
             AppLogger.syncInfo("Loaded \(slots.count) website image slots.")
+        } catch is CancellationError {
+            return
         } catch let error as AdminAPIError {
             AppLogger.syncError("fetchWebsiteSettings failed: \(error.localizedDescription)")
-            errorMessage = message(for: error)
+            if !hasLoaded {
+                errorMessage = message(for: error)
+            }
         } catch {
             AppLogger.syncError("fetchWebsiteSettings failed: \(error.localizedDescription)")
-            errorMessage = error.localizedDescription
+            if !hasLoaded {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 

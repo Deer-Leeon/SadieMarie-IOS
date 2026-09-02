@@ -152,6 +152,31 @@ extension BookingDisplay {
       }
     }
 
+    /// First day of the visible 3-day or week window that contains `now`.
+    static func currentRangeStart(
+        mode: BookingsView.CalendarMode,
+        now: Date = Date(),
+        calendar: Foundation.Calendar = .current
+    ) -> Date {
+        let today = calendar.startOfDay(for: now)
+        switch mode {
+        case .week:
+            return calendar.dateInterval(of: .weekOfYear, for: today)?.start ?? today
+        case .threeDay, .month, .list:
+            return today
+        }
+    }
+
+    static func rangeContainsToday(
+        mode: BookingsView.CalendarMode,
+        rangeStart: Date,
+        now: Date = Date(),
+        calendar: Foundation.Calendar = .current
+    ) -> Bool {
+        visibleDays(mode: mode, rangeStart: rangeStart, calendar: calendar)
+            .contains { calendar.isDate($0, inSameDayAs: now) }
+    }
+
     /// Months to render in the month scroll (anchor month ± buffer).
     static func monthsToDisplay(
       around anchor: Date,
@@ -236,7 +261,7 @@ extension BookingDisplay {
         hourHeight: CGFloat
     ) -> CGFloat {
         let durationHours = max(end.timeIntervalSince(start) / 3600, 1.0 / 60.0)
-        return CGFloat(durationHours) * hourHeight - 2
+        return CGFloat(durationHours) * hourHeight
     }
 
     static func durationMinutes(start: Date, end: Date) -> Int {

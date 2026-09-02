@@ -10,6 +10,11 @@ struct DayColumnBookingCard: View {
     let blockHeight: CGFloat
     let hourHeight: CGFloat
     let durationMinutes: Int
+    var compactOverlap: Bool = false
+    var isOverlapping: Bool = false
+    var overlapCol: Int = 0
+    /// Daily view side-by-side lanes: tighter padding, full name still shown.
+    var denseColumns: Bool = false
 
     private var isNoShow: Bool { BookingDisplay.isNoShow(appointment) }
     private var hasNoShowFlag: Bool { appointment.clientNoShowFlag }
@@ -44,14 +49,22 @@ struct DayColumnBookingCard: View {
 
     private var cornerRadius: CGFloat { isWeekStyle ? 2 : 4 }
 
+    private var peekingUnder: Bool { isOverlapping && overlapCol == 0 }
+
     /// Enough vertical room for name + a second detail line.
     private var canStackTwoLines: Bool {
+        if compactOverlap || peekingUnder { return false }
+        if denseColumns { return blockHeight >= 32 }
         if durationMinutes < 40 { return false }
         return blockHeight >= 36
     }
 
     /// Tall enough (or 3-day width) to include the service name in details.
     private var includeService: Bool {
+        if compactOverlap { return false }
+        if denseColumns {
+            return canStackTwoLines && (durationMinutes >= 45 || blockHeight >= 48)
+        }
         if !canStackTwoLines {
             // Inline layout — 3-day has width; week truncates as needed.
             return !isWeekStyle || blockHeight >= 28
@@ -60,6 +73,10 @@ struct DayColumnBookingCard: View {
     }
 
     private var clientName: String {
+        if compactOverlap {
+            let first = appointment.clientFirstName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !first.isEmpty { return first }
+        }
         if isWeekStyle && !canStackTwoLines {
             return BookingDisplay.CalendarFormatting.gridShortClientName(
                 first: appointment.clientFirstName,
@@ -73,7 +90,7 @@ struct DayColumnBookingCard: View {
     }
 
     private var timeLabel: String {
-        if isWeekStyle {
+        if compactOverlap || isWeekStyle {
             return BookingDisplay.CalendarFormatting.formattedChipTime(for: appointment)
         }
         return BookingDisplay.CalendarFormatting.formattedTimeRange(for: appointment)
@@ -112,22 +129,25 @@ struct DayColumnBookingCard: View {
                     inlineContent
                 }
             }
-            .padding(.horizontal, isWeekStyle ? 3 : 5)
-            .padding(.vertical, isWeekStyle ? 2 : 4)
+            .padding(.horizontal, peekingUnder ? 4 : (denseColumns ? 4 : (isWeekStyle ? 3 : 5)))
+            .padding(.vertical, peekingUnder ? 2 : (denseColumns ? 3 : (isWeekStyle ? 2 : 4)))
             .padding(
                 .trailing,
-                appointment.terminalPayment?.isSettled == true || hasNoShowFlag
-                    ? (isWeekStyle ? 16 : 20)
-                    : 0
+                peekingUnder
+                    ? 0
+                    : (appointment.terminalPayment?.isSettled == true || hasNoShowFlag
+                        ? (isWeekStyle ? 16 : (denseColumns ? 14 : 20))
+                        : 0)
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
             // Top-trailing cluster matches web TimeGrid pills: settlement
             // marker first, then optional no-show flag.
+            if !peekingUnder {
             HStack(spacing: 2) {
                 SettlementCheckMarker(
                     payment: appointment.terminalPayment,
-                    size: isWeekStyle ? .sm : .md
+                    size: isWeekStyle || denseColumns ? .sm : .md
                 )
                 if hasNoShowFlag {
                     Image(systemName: "flag.fill")
@@ -142,9 +162,22 @@ struct DayColumnBookingCard: View {
             .padding(isWeekStyle ? 2 : 3)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             .allowsHitTesting(false)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: blockHeight, alignment: .top)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .overlay {
+            if isOverlapping {
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .strokeBorder(Color.white.opacity(overlapCol > 0 ? 0.78 : 0.45), lineWidth: 1)
+            }
+        }
+        .shadow(
+            color: Color.black.opacity(isOverlapping && overlapCol > 0 ? 0.16 : 0),
+            radius: isOverlapping && overlapCol > 0 ? 6 : 0,
+            x: 0,
+            y: isOverlapping && overlapCol > 0 ? 2 : 0
+        )
         .opacity(isNoShow ? AdminTheme.Layout.noShowOpacity : 1)
     }
 
@@ -155,20 +188,20 @@ struct DayColumnBookingCard: View {
         VStack(alignment: .leading, spacing: isWeekStyle ? 1 : 2) {
             Text(clientName)
                 .font(AdminTheme.fontAdminSans(
-                    size: isWeekStyle ? 9 : 11,
+                    size: isWeekStyle ? 9 : (denseColumns ? 12 : 11),
                     weight: .semibold
                 ))
                 .foregroundStyle(textColors.primary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.75)
+                .minimumScaleFactor(denseColumns ? 0.65 : 0.75)
                 .strikethrough(isNoShow, color: textColors.secondary)
 
             if !detailBits.isEmpty {
                 Text(detailBits)
-                    .font(AdminTheme.fontAdminSans(size: isWeekStyle ? 8 : 9))
+                    .font(AdminTheme.fontAdminSans(size: isWeekStyle ? 8 : (denseColumns ? 10 : 9)))
                     .foregroundStyle(textColors.secondary)
                     .lineLimit(isWeekStyle ? 1 : 2)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(denseColumns ? 0.65 : 0.7)
                     .strikethrough(isNoShow, color: textColors.secondary)
             }
         }
@@ -179,18 +212,18 @@ struct DayColumnBookingCard: View {
         HStack(alignment: .firstTextBaseline, spacing: 0) {
             Text(clientName)
                 .font(AdminTheme.fontAdminSans(
-                    size: isWeekStyle ? 8 : 10,
+                    size: isWeekStyle ? 8 : (denseColumns ? 11 : 10),
                     weight: .semibold
                 ))
                 .foregroundStyle(textColors.primary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .minimumScaleFactor(denseColumns ? 0.6 : 0.7)
                 .strikethrough(isNoShow, color: textColors.secondary)
                 .layoutPriority(1)
 
             if !detailBits.isEmpty {
                 Text(" · \(detailBits)")
-                    .font(AdminTheme.fontAdminSans(size: isWeekStyle ? 7.5 : 9))
+                    .font(AdminTheme.fontAdminSans(size: isWeekStyle ? 7.5 : (denseColumns ? 9 : 9)))
                     .foregroundStyle(textColors.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.65)

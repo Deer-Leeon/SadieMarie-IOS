@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// Planned studio hours from Cal schedule (weekly + overrides).
@@ -73,6 +74,74 @@ enum StudioScheduleWindows {
         return out
     }
 
+    struct MinuteBand: Hashable, Sendable {
+        let startMins: Int
+        let endMins: Int
+    }
+
+    static let gridStartMins = 9 * 60
+    static let gridEndMins = 21 * 60
+
+    /// Closed (unavailable) bands inside the visible 9 AM–9 PM grid.
+    /// Official windows are light; `holes` (booked appointments) punch cream gaps.
+    static func closedBands(
+        forYMD ymd: String,
+        availability: [ScheduleAvailabilityBlock],
+        overrides: [ScheduleOverride],
+        holes: [MinuteBand] = [],
+        visibleStartMins: Int = gridStartMins,
+        visibleEndMins: Int = gridEndMins
+    ) -> [MinuteBand] {
+        let openWindows = windows(forYMD: ymd, availability: availability, overrides: overrides)
+        var open: [MinuteBand] = []
+        for window in openWindows {
+            guard let start = hhmmToMinutes(window.startTime),
+                  let end = hhmmToMinutes(window.endTime),
+                  end > start,
+                  let clipped = clip(
+                    MinuteBand(startMins: start, endMins: end),
+                    gridStart: visibleStartMins,
+                    gridEnd: visibleEndMins
+                  ) else { continue }
+            open.append(clipped)
+        }
+        let closed = invert(open, gridStart: visibleStartMins, gridEnd: visibleEndMins)
+        let clippedHoles = holes.compactMap {
+            clip($0, gridStart: visibleStartMins, gridEnd: visibleEndMins)
+        }
+        return subtract(closed, holes: clippedHoles)
+    }
+
+    static func minuteBand(from appointment: Appointment) -> MinuteBand? {
+        guard let startISO = appointment.bookingTime,
+              let start = BookingDisplay.iso8601Date(from: startISO) else {
+            return nil
+        }
+        let end = appointment.endTime.flatMap { BookingDisplay.iso8601Date(from: $0) }
+            ?? start.addingTimeInterval(3600)
+        let calendar = StudioTime.calendar
+        let startMins =
+            calendar.component(.hour, from: start) * 60
+            + calendar.component(.minute, from: start)
+        var endMins =
+            calendar.component(.hour, from: end) * 60
+            + calendar.component(.minute, from: end)
+        if endMins <= startMins {
+            endMins = gridEndMins
+        }
+        return MinuteBand(startMins: startMins, endMins: endMins)
+    }
+
+    static func yOffset(forStartMins startMins: Int, hourHeight: CGFloat) -> CGFloat {
+        let hoursFromGrid = CGFloat(startMins - gridStartMins) / 60
+        return max(0, hoursFromGrid * hourHeight)
+    }
+
+    static func bandHeight(startMins: Int, endMins: Int, hourHeight: CGFloat) -> CGFloat {
+        let hours = CGFloat(max(endMins - startMins, 0)) / 60
+        return hours * hourHeight
+    }
+
     /// True when the full appointment fits inside a planned studio window.
     static func isAppointmentWithinStudioWindows(
         slotLocalHhmm: String,
@@ -121,5 +190,87 @@ enum StudioScheduleWindows {
               (0...23).contains(hour),
               (0...59).contains(minute) else { return nil }
         return hour * 60 + minute
+    }
+
+    private static func clip(
+        _ band: MinuteBand,
+        gridStart: Int,
+        gridEnd: Int
+    ) -> MinuteBand? {
+        let start = max(band.startMins, gridStart)
+        let end = min(band.endMins, gridEnd)
+        guard end > start else { return nil }
+        return MinuteBand(startMins: start, endMins: end)
+    }
+
+    private static func merge(_ bands: [MinuteBand]) -> [MinuteBand] {
+        let sorted = bands
+            .filter { $0.endMins > $0.startMins }
+            .sorted { lhs, rhs in
+                if lhs.startMins != rhs.startMins { return lhs.startMins < rhs.startMins }
+                return lhs.endMins < rhs.endMins
+            }
+        var out: [MinuteBand] = []
+        for band in sorted {
+            guard let last = out.last else {
+                out.append(band)
+                continue
+            }
+            if band.startMins > last.endMins {
+                out.append(band)
+            } else {
+                out[out.count - 1] = MinuteBand(
+                    startMins: last.startMins,
+                    endMins: max(last.endMins, band.endMins)
+                )
+            }
+        }
+        return out
+    }
+
+    private static func invert(
+        _ open: [MinuteBand],
+        gridStart: Int,
+        gridEnd: Int
+    ) -> [MinuteBand] {
+        let merged = merge(open)
+        var closed: [MinuteBand] = []
+        var cursor = gridStart
+        for window in merged {
+            if window.startMins > cursor {
+                closed.append(MinuteBand(startMins: cursor, endMins: window.startMins))
+            }
+            cursor = max(cursor, window.endMins)
+        }
+        if cursor < gridEnd {
+            closed.append(MinuteBand(startMins: cursor, endMins: gridEnd))
+        }
+        return closed
+    }
+
+    private static func subtract(
+        _ closed: [MinuteBand],
+        holes: [MinuteBand]
+    ) -> [MinuteBand] {
+        if holes.isEmpty { return closed }
+        let mergedHoles = merge(holes)
+        var out: [MinuteBand] = []
+        for band in closed {
+            var cursor = band.startMins
+            for hole in mergedHoles {
+                if hole.endMins <= cursor { continue }
+                if hole.startMins >= band.endMins { break }
+                let cutStart = max(hole.startMins, cursor)
+                let cutEnd = min(hole.endMins, band.endMins)
+                if cutStart > cursor {
+                    out.append(MinuteBand(startMins: cursor, endMins: cutStart))
+                }
+                cursor = max(cursor, cutEnd)
+            }
+            if cursor < band.endMins {
+                out.append(MinuteBand(startMins: cursor, endMins: band.endMins))
+            }
+        }
+        return out
     }
 }

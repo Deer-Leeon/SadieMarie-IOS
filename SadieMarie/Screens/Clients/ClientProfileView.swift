@@ -182,16 +182,17 @@ struct ClientProfileView: View {
             .sheet(item: $selectedAppointment) { appointment in
                 AppointmentDetailSheet(
                     appointment: appointment,
+                    knownAppointments: viewModel.history,
                     onDismiss: { selectedAppointment = nil },
                     onMutated: {
                         historyMutated = true
                         selectedAppointment = nil
                         Task { await viewModel.reloadDossier() }
                     },
-                    onPaymentMutated: { payment in
+                    onPaymentMutated: { payment, ids in
                         historyMutated = true
                         viewModel.applyPayment(
-                            appointmentId: appointment.id,
+                            appointmentIds: ids.isEmpty ? [appointment.id] : ids,
                             payment: payment
                         )
                     }

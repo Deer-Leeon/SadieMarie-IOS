@@ -51,6 +51,24 @@ enum ClientPhone {
         return nil
     }
 
+    /// Partial US national number as `(801) 555-1234` while typing.
+    static func formatAsYouType(_ raw: String) -> String {
+        let digits = raw.filter(\.isNumber)
+        let national = (
+            digits.first == "1" ? String(digits.dropFirst()) : digits
+        ).prefix(10)
+        if national.isEmpty { return "" }
+        if national.count < 3 { return "(\(national)" }
+        if national.count == 3 { return "(\(national))" }
+        if national.count <= 6 {
+            return "(\(national.prefix(3))) \(national.dropFirst(3))"
+        }
+        let area = national.prefix(3)
+        let mid = national.dropFirst(3).prefix(3)
+        let last = national.dropFirst(6)
+        return "(\(area)) \(mid)-\(last)"
+    }
+
     static func formatInputDisplay(_ raw: String) -> String {
         guard let parsed = parse(raw) else { return raw.trimmingCharacters(in: .whitespacesAndNewlines) }
 

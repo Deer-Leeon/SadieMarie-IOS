@@ -16,6 +16,7 @@ enum TerminalPaymentStatus: String, Codable, Hashable, Sendable {
 
 struct AppointmentPaymentSummary: Codable, Hashable, Sendable, Identifiable {
     let id: String
+    let appointmentId: String?
     let paymentKind: AppointmentPaymentKind
     let paymentIntentId: String?
     let readerId: String?
@@ -61,6 +62,7 @@ struct TerminalPaymentAPIResponse: Codable, Hashable, Sendable {
 
 struct SettlementAPIResponse: Codable, Hashable, Sendable {
     let payment: AppointmentPaymentSummary?
+    let payments: [AppointmentPaymentSummary]?
     let error: String?
     let message: String?
 }
@@ -73,10 +75,34 @@ enum AppointmentSettlementMethod: String, Codable, Hashable, Sendable {
 struct SettlementRequest: Encodable, Sendable {
     let method: AppointmentSettlementMethod
     let note: String?
+    var additionalAppointmentIds: [String]?
 
     func encodedJSON() throws -> Data {
         try AdminRequestEncoder.encode(self)
     }
+}
+
+struct SameDayUnsettledVisit: Codable, Hashable, Sendable, Identifiable {
+    let id: String
+    let bookingTime: String?
+    let endTime: String?
+    let serviceName: String?
+    let quotedServicePriceCents: Int?
+    let servicePrice: Double?
+
+    var quotedCents: Int {
+        if let quotedServicePriceCents, quotedServicePriceCents >= 0 {
+            return quotedServicePriceCents
+        }
+        if let servicePrice, servicePrice.isFinite, servicePrice >= 0 {
+            return Int((servicePrice * 100).rounded())
+        }
+        return 0
+    }
+}
+
+struct SameDayUnsettledResponse: Codable, Hashable, Sendable {
+    let appointments: [SameDayUnsettledVisit]
 }
 
 struct PaymentOperationResult: Hashable, Sendable {

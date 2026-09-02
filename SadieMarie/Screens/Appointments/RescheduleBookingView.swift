@@ -164,26 +164,28 @@ struct RescheduleBookingView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(service.title)
                         .font(AdminTheme.fontAdminSans(size: 15, weight: .medium))
-                        .foregroundStyle(AdminTheme.stone900)
+                        .foregroundStyle(selected ? AdminTheme.cream : AdminTheme.stone900)
                     Text(service.detailMetaLine)
                         .font(AdminTheme.fontAdminSans(size: 12))
-                        .foregroundStyle(AdminTheme.stone500)
+                        .foregroundStyle(selected ? AdminTheme.stone300 : AdminTheme.stone500)
                 }
                 Spacer()
                 if selected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(AdminTheme.stone900)
+                        .foregroundStyle(AdminTheme.cream)
                 }
             }
             .padding(12)
-            .background(selected ? AdminTheme.stone50 : AdminTheme.cardFill)
+            .background(selected ? AdminTheme.stone900 : AdminTheme.cardFill)
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
                     .stroke(selected ? AdminTheme.stone900 : AdminTheme.stone200, lineWidth: 1)
             )
+            .shadow(color: selected ? AdminTheme.stone900.opacity(0.18) : .clear, radius: 2, y: 1)
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private func groupRow(_ group: ManualBookingGroupRow) -> some View {

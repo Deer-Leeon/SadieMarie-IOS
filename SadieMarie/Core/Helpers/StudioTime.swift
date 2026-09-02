@@ -60,6 +60,16 @@ enum StudioTime {
         (try? slotToStudioLocalStart(isoUtc: isoUtc)).map { String($0.dropFirst(11).prefix(5)) }
     }
 
+    /// True when the slot's studio-local hour matches `hour` (0–23).
+    static func slotMatchesStudioHour(isoUtc: String, hour: Int) -> Bool {
+        guard (0...23).contains(hour),
+              let hhmm = slotToStudioLocalHhmm(isoUtc: isoUtc),
+              let slotHour = Int(hhmm.prefix(2)) else {
+            return false
+        }
+        return slotHour == hour
+    }
+
     static func monthLabel(year: Int, month: Int) -> String {
         var components = DateComponents()
         components.year = year

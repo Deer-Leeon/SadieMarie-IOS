@@ -4,27 +4,43 @@ struct AvailabilityWeeklySection: View {
     @Bindable var viewModel: AvailabilityViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            AdminSectionHeader(title: "Weekly hours")
+        AdminAvailabilitySectionCard {
+            AdminAvailabilitySectionHeader(
+                eyebrow: "Recurring",
+                title: "Weekly hours",
+                subtitle: weeklySubtitle
+            )
+        } content: {
+            VStack(spacing: 0) {
+                ForEach(Array(viewModel.weekly.enumerated()), id: \.element.id) { offset, row in
+                    AvailabilityWeeklyDayRow(
+                        row: row,
+                        onEnabledChange: { viewModel.setDayEnabled(offset, enabled: $0) },
+                        onStartChange: { viewModel.setDayTime(offset, start: $0, end: nil) },
+                        onEndChange: { viewModel.setDayTime(offset, start: nil, end: $0) }
+                    )
 
-            AdminAvailabilityCard {
-                VStack(spacing: 0) {
-                    ForEach(Array(viewModel.weekly.enumerated()), id: \.element.id) { offset, row in
-                        AvailabilityWeeklyDayRow(
-                            row: row,
-                            onEnabledChange: { viewModel.setDayEnabled(offset, enabled: $0) },
-                            onStartChange: { viewModel.setDayTime(offset, start: $0, end: nil) },
-                            onEndChange: { viewModel.setDayTime(offset, start: nil, end: $0) }
-                        )
-
-                        if offset < viewModel.weekly.count - 1 {
-                            Divider()
-                                .overlay(AdminTheme.stone200)
-                        }
+                    if offset < viewModel.weekly.count - 1 {
+                        Divider()
+                            .overlay(AdminTheme.stone100)
+                            .padding(.horizontal, 16)
                     }
                 }
             }
+            .padding(.bottom, 4)
         }
+    }
+
+    private var weeklySubtitle: String {
+        let open = viewModel.weekly.filter(\.enabled)
+        if open.isEmpty {
+            return "No days are currently bookable."
+        }
+        let names = open.map(\.dayName.shortTitle)
+        if names.count == 7 {
+            return "Open every day."
+        }
+        return "Open \(names.joined(separator: ", "))."
     }
 }
 
@@ -57,8 +73,8 @@ private struct AvailabilityWeeklyDayRow: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 10) {
                 Text(row.dayName.title)
-                    .font(AdminTheme.fontAdminSerif(size: 15))
-                    .foregroundStyle(enabled ? AdminTheme.stone900 : AdminTheme.stone600)
+                    .font(AdminTheme.fontAdminSerif(size: 16))
+                    .foregroundStyle(enabled ? AdminTheme.stone900 : AdminTheme.stone500)
 
                 Spacer(minLength: 8)
 
@@ -81,8 +97,8 @@ private struct AvailabilityWeeklyDayRow: View {
                 }
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, enabled ? 10 : 8)
+        .padding(.horizontal, 16)
+        .padding(.vertical, enabled ? 12 : 11)
         .onChange(of: row.enabled) { _, newValue in enabled = newValue }
         .onChange(of: row.start) { _, newValue in start = newValue }
         .onChange(of: row.end) { _, newValue in end = newValue }

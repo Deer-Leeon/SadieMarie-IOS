@@ -58,6 +58,13 @@ enum AdminAPIError: LocalizedError {
             return error.localizedDescription
         }
     }
+
+    /// Forbidden is a real deny; retrying will not help. Other failures
+    /// (401, transport) can recover after a session touch.
+    var isNonRetryableAuthFailure: Bool {
+        if case .forbidden = self { return true }
+        return false
+    }
 }
 
 // MARK: - Client
@@ -87,16 +94,50 @@ actor AdminAPIClient {
     let decoder: JSONDecoder
     private let tokenProvider: TokenProvider
 
+    /// Clerk `getToken()` has been observed to hang with no URL timeout.
+    private static let tokenTimeoutNanoseconds: UInt64 = 12_000_000_000
+    private static let requestTimeout: TimeInterval = 20
+    private static let resourceTimeout: TimeInterval = 30
+
     init(
         baseURL: URL = URL(string: "https://www.sadiemarie.co/api/admin")!,
-        session: URLSession = .shared,
+        session: URLSession? = nil,
         decoder: JSONDecoder = AdminAPIClient.defaultDecoder(),
         tokenProvider: @escaping TokenProvider = AdminAPIClient.defaultClerkTokenProvider
     ) {
         self.baseURL = baseURL
-        self.session = session
+        self.session = session ?? Self.makeSession()
         self.decoder = decoder
         self.tokenProvider = tokenProvider
+    }
+
+    /// Dedicated session so admin calls cannot wait forever for connectivity
+    /// or inherit `URLSession.shared`'s unbounded resource timeout.
+    private static func makeSession() -> URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = requestTimeout
+        config.timeoutIntervalForResource = resourceTimeout
+        config.waitsForConnectivity = false
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: config)
+    }
+
+    private func resolvedToken() async throws -> String {
+        try await withThrowingTaskGroup(of: String.self) { group in
+            group.addTask {
+                try await self.tokenProvider()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: Self.tokenTimeoutNanoseconds)
+                throw AdminAPIError.transport(URLError(.timedOut))
+            }
+            guard let token = try await group.next() else {
+                throw AdminAPIError.invalidResponse
+            }
+            group.cancelAll()
+            return token
+        }
     }
 
     static func defaultDecoder() -> JSONDecoder {
@@ -135,7 +176,10 @@ actor AdminAPIClient {
         guard let session else {
             throw AdminAPIError.noActiveSession
         }
-        guard let jwt = try await session.getToken() else {
+        if let jwt = try await session.getToken() {
+            return jwt
+        }
+        guard let jwt = try await session.getToken(Session.GetTokenOptions(skipCache: true)) else {
             throw AdminAPIError.unauthorized
         }
         return jwt
@@ -167,6 +211,7 @@ actor AdminAPIClient {
             cachePolicy: .reloadIgnoringLocalCacheData
         )
         let decoded = try Self.decodeJSON(AvailabilityResponse.self, from: data)
+        AvailabilitySnapshotStore.save(data)
         let scheduleId = decoded.schedule.id ?? AvailabilityJSON.parseScheduleId(from: data)
         let response = decoded.withResolvedScheduleId(scheduleId)
 
@@ -237,24 +282,34 @@ actor AdminAPIClient {
         additionalHeaders: [String: String] = [:],
         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
     ) async throws -> Data {
-        let token = try await tokenProvider()
-        var request = URLRequest(url: url)
-        request.cachePolicy = cachePolicy
-        request.httpMethod = method.rawValue
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        for (header, value) in additionalHeaders {
-            request.setValue(value, forHTTPHeaderField: header)
-        }
-        if let body {
-            request.httpBody = body
-        }
+        do {
+            let token = try await resolvedToken()
+            var request = URLRequest(url: url)
+            request.cachePolicy = cachePolicy
+            request.httpMethod = method.rawValue
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            for (header, value) in additionalHeaders {
+                request.setValue(value, forHTTPHeaderField: header)
+            }
+            if let body {
+                request.httpBody = body
+            }
 
-        print("🌐 [AdminAPIClient] \(method.rawValue) \(url.absoluteString)")
+            print("🌐 [AdminAPIClient] \(method.rawValue) \(url.absoluteString)")
 
-        let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
-        return data
+            let (data, response) = try await session.data(for: request)
+            try validate(response: response, data: data)
+            return data
+        } catch let error as AdminAPIError {
+            throw error
+        } catch let error as URLError {
+            throw AdminAPIError.transport(error)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw AdminAPIError.unknown(error)
+        }
     }
 
     /// Raw response bytes (validated HTTP status).
@@ -293,7 +348,7 @@ actor AdminAPIClient {
         cachePolicy: URLRequest.CachePolicy = .reloadIgnoringLocalCacheData
     ) async throws -> (data: Data, statusCode: Int) {
         do {
-            let token = try await tokenProvider()
+            let token = try await resolvedToken()
             let request = try makeRequest(
                 endpoint: endpoint,
                 token: token,
@@ -344,7 +399,7 @@ actor AdminAPIClient {
         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
     ) async throws -> T {
         do {
-            let token = try await tokenProvider()
+            let token = try await resolvedToken()
             let request = try makeRequest(
                 endpoint: endpoint,
                 token: token,

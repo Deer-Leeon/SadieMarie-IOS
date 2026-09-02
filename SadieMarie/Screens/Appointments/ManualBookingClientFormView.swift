@@ -152,11 +152,11 @@ struct ManualBookingClientFormView: View {
     private func selectedClientCard(_ client: Client) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(AdminTheme.confirmedText)
+                .foregroundStyle(AdminTheme.cream)
             VStack(alignment: .leading, spacing: 4) {
                 Text(client.displayName)
                     .font(AdminTheme.fontAdminSerif(size: 17))
-                    .foregroundStyle(AdminTheme.stone900)
+                    .foregroundStyle(AdminTheme.cream)
                 let meta = [
                     client.formattedPhone.isEmpty ? nil : client.formattedPhone,
                     ClientEmail.usableDisplay(client.email),
@@ -164,7 +164,7 @@ struct ManualBookingClientFormView: View {
                 if !meta.isEmpty {
                     Text(meta.joined(separator: " · "))
                         .font(AdminTheme.fontAdminSans(size: 12))
-                        .foregroundStyle(AdminTheme.stone500)
+                        .foregroundStyle(AdminTheme.stone300)
                 }
             }
             Spacer(minLength: 8)
@@ -172,15 +172,16 @@ struct ManualBookingClientFormView: View {
                 viewModel.clearSelectedDirectoryClient()
             }
             .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
-            .foregroundStyle(AdminTheme.stone600)
+            .foregroundStyle(AdminTheme.stone300)
         }
         .padding(12)
-        .background(AdminTheme.cardFill)
+        .background(AdminTheme.stone900)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(AdminTheme.stone300, lineWidth: 1)
+                .stroke(AdminTheme.stone900, lineWidth: 1)
         )
+        .shadow(color: AdminTheme.stone900.opacity(0.18), radius: 2, y: 1)
     }
 
     private var clientResultsList: some View {

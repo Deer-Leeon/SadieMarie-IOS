@@ -14,10 +14,12 @@ final class AvailabilityViewModel {
     private(set) var timeZone: String = "America/Denver"
     private var scheduleId: Int?
 
+    private(set) var hasLoaded = false
     private(set) var isLoading = false
     private(set) var isSaving = false
     private(set) var errorMessage: String?
     private(set) var saveSuccessMessage: String?
+    private let inFlightLoad = InFlightLoad()
 
     /// Briefly set after confirming an add so the list can scroll/highlight.
     private(set) var highlightedOverrideId: String?
@@ -60,37 +62,71 @@ final class AvailabilityViewModel {
         let endHHMM: String?
     }
 
+    init() {
+        if let cached = AvailabilitySnapshotStore.load() {
+            apply(cached, capture: true)
+            hasLoaded = true
+        } else {
+            captureSnapshots()
+        }
+    }
+
     // MARK: - Load / save
 
-    func load() async {
-        isLoading = true
-        errorMessage = nil
-        saveSuccessMessage = nil
-        highlightedOverrideId = nil
+    /// - Parameter showLoading: Full-screen overlay. Prefetch and silent
+    ///   refresh skip this once hours are already on screen.
+    func load(showLoading: Bool = true) async {
+        let blockUI = showLoading && !hasLoaded
+        if blockUI {
+            isLoading = true
+            errorMessage = nil
+            saveSuccessMessage = nil
+            highlightedOverrideId = nil
+        }
 
-        defer { isLoading = false }
+        await inFlightLoad.run { [weak self] in
+            await self?.performLoad()
+        }
+        isLoading = false
+        hasLoaded = true
+    }
+
+    private func performLoad() async {
+        guard !(hasLoaded && hasUnsavedChanges) else { return }
 
         do {
             let response = try await AdminAPIClient.shared.fetchAvailability()
-            scheduleId = response.resolvedScheduleId
-            timeZone = response.schedule.timeZone
-            weekly = Self.buildInitialWeekly(from: response.schedule.availability)
-            let partitioned = Self.partitionOverrides(
-                Self.buildInitialOverrides(from: response.overrides)
-            )
-            overrides = partitioned.active
-            archivedOverrides = partitioned.archived
-            archiveExpanded = !partitioned.archived.isEmpty
-            captureSnapshots()
+            apply(response, capture: true)
+            errorMessage = nil
             AppLogger.syncInfo(
                 "Loaded availability (scheduleId=\(scheduleId.map(String.init) ?? "nil"), \(response.schedule.availability.count) blocks, \(response.overrides.count) overrides)."
             )
+        } catch is CancellationError {
+            return
         } catch let error as AdminAPIError {
             AppLogger.syncError("fetchAvailability failed: \(error.localizedDescription)")
-            errorMessage = message(for: error)
+            if !hasLoaded {
+                errorMessage = message(for: error)
+            }
         } catch {
             AppLogger.syncError("fetchAvailability failed: \(error.localizedDescription)")
-            errorMessage = error.localizedDescription
+            if !hasLoaded {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func apply(_ response: AvailabilityResponse, capture: Bool) {
+        scheduleId = response.resolvedScheduleId
+        timeZone = response.schedule.timeZone
+        weekly = Self.buildInitialWeekly(from: response.schedule.availability)
+        let partitioned = Self.partitionOverrides(
+            Self.buildInitialOverrides(from: response.overrides)
+        )
+        overrides = partitioned.active
+        archivedOverrides = partitioned.archived
+        if capture {
+            captureSnapshots()
         }
     }
 
@@ -116,9 +152,6 @@ final class AvailabilityViewModel {
         let partitioned = Self.partitionOverrides(overrides + archivedOverrides)
         overrides = partitioned.active
         archivedOverrides = partitioned.archived
-        if !partitioned.archived.isEmpty {
-            archiveExpanded = true
-        }
 
         let payload = AvailabilityUpdateRequest(
             scheduleId: scheduleId,
@@ -128,16 +161,7 @@ final class AvailabilityViewModel {
 
         do {
             let response = try await AdminAPIClient.shared.saveAvailability(payload)
-            self.scheduleId = response.resolvedScheduleId ?? scheduleId
-            timeZone = response.schedule.timeZone
-            weekly = Self.buildInitialWeekly(from: response.schedule.availability)
-            let saved = Self.partitionOverrides(
-                Self.buildInitialOverrides(from: response.overrides)
-            )
-            overrides = saved.active
-            archivedOverrides = saved.archived
-            archiveExpanded = !saved.archived.isEmpty
-            captureSnapshots()
+            apply(response, capture: true)
             saveSuccessMessage = "Schedule saved."
             AppLogger.syncInfo("Saved availability (\(payload.availability.count) blocks).")
         } catch let error as AdminAPIError {

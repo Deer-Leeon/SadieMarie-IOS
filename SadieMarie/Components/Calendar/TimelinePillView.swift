@@ -16,19 +16,21 @@ struct TimelinePillView: View {
         isNoShow ? nil : BookingDisplay.serviceColor(for: appointment)
     }
 
-    private var frameWidth: CGFloat {
-        let widthPct = 100.0 / Double(positioned.totalCols)
-        return max(columnWidth * CGFloat(widthPct / 100) - 4, 8)
+    private var laneFrame: OverlapLaneFrame {
+        TimelineEngine.cascadeLaneFrame(
+            col: positioned.col,
+            totalCols: positioned.totalCols,
+            columnWidth: columnWidth
+        )
     }
+
+    private var frameWidth: CGFloat { laneFrame.width }
 
     private var frameHeight: CGFloat {
         max(columnHeight * CGFloat(positioned.heightPct / 100), TimelineEngine.minPillHeight)
     }
 
-    private var xOffset: CGFloat {
-        let widthPct = 100.0 / Double(positioned.totalCols)
-        return columnWidth * CGFloat(Double(positioned.col) * widthPct / 100) + 2
-    }
+    private var xOffset: CGFloat { laneFrame.leading }
 
     private var yOffset: CGFloat {
         columnHeight * CGFloat(positioned.topPct / 100)
@@ -38,8 +40,13 @@ struct TimelinePillView: View {
         BookingDisplay.CalendarFormatting.formattedTimeRange(for: appointment)
     }
 
+    private var compactOverlap: Bool { positioned.totalCols > 1 }
+
     private var clientName: String {
-        BookingDisplay.clientDisplayName(
+        if compactOverlap, let first = appointment.clientFirstName?.trimmingCharacters(in: .whitespacesAndNewlines), !first.isEmpty {
+            return first
+        }
+        return BookingDisplay.clientDisplayName(
             first: appointment.clientFirstName,
             last: appointment.clientLastName
         )
@@ -74,6 +81,18 @@ struct TimelinePillView: View {
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 4))
+                .overlay {
+                    if compactOverlap {
+                        RoundedRectangle(cornerRadius: 4)
+                            .strokeBorder(Color.white.opacity(positioned.col > 0 ? 0.78 : 0.45), lineWidth: 1)
+                    }
+                }
+                .shadow(
+                    color: Color.black.opacity(compactOverlap && positioned.col > 0 ? 0.16 : 0),
+                    radius: compactOverlap && positioned.col > 0 ? 6 : 0,
+                    x: 0,
+                    y: compactOverlap && positioned.col > 0 ? 2 : 0
+                )
         }
         .buttonStyle(.plain)
         .disabled(onTap == nil)
@@ -82,6 +101,7 @@ struct TimelinePillView: View {
     /// Leading/top inset within the day column (padding preserves hit testing vs `.offset`).
     var leadingInset: CGFloat { xOffset }
     var topInset: CGFloat { yOffset }
+    var laneZIndex: Double { laneFrame.zIndex }
 
     @ViewBuilder
     private var pillContent: some View {
@@ -122,7 +142,7 @@ struct TimelinePillView: View {
 
             Spacer(minLength: 0)
 
-            Text(serviceLabel)
+            Text(subtitleLine)
                 .font(AdminTheme.fontAdminSans(size: 8))
                 .foregroundStyle(secondaryText)
                 .lineLimit(1)
@@ -136,6 +156,9 @@ struct TimelinePillView: View {
     }
 
     private var subtitleLine: String {
+        if compactOverlap {
+            return BookingDisplay.CalendarFormatting.formattedChipTime(for: appointment)
+        }
         if timeLabel.isEmpty { return serviceLabel }
         if serviceLabel.isEmpty { return timeLabel }
         return "\(timeLabel) · \(serviceLabel)"

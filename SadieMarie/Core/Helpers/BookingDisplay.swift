@@ -380,6 +380,20 @@ enum BookingDisplay {
         return iso8601Date(from: iso)
     }
 
+    /// End of the visit; falls back to one hour after start when `endTime` is missing.
+    static func appointmentEndDate(for apt: Appointment) -> Date? {
+        if let endISO = apt.endTime, let end = iso8601Date(from: endISO) {
+            return end
+        }
+        return bookingDate(for: apt)?.addingTimeInterval(3600)
+    }
+
+    /// Still in the chair, or not started yet.
+    static func isUpcoming(_ apt: Appointment, now: Date = Date()) -> Bool {
+        guard let end = appointmentEndDate(for: apt) else { return false }
+        return end >= now
+    }
+
     /// Groups visible appointments by calendar day (start of day), sorted ascending.
     static func groupedByDay(_ appointments: [Appointment]) -> [(day: Date, appointments: [Appointment])] {
         let calendar = Calendar.current

@@ -18,3 +18,7 @@ PeriodTracker/Config/LocalOverrides.xcconfig
 
 # macOS Finder
 .DS_Store
+
+# Apple Push .p8 keys (drop in secrets/apns/; never commit)
+*.p8
+secrets/apns/*.p8

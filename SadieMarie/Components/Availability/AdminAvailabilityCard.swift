@@ -14,6 +14,95 @@ struct AdminSectionHeader: View {
     }
 }
 
+/// Eyebrow + serif title used inside availability section cards.
+struct AdminAvailabilitySectionHeader<Trailing: View>: View {
+    let eyebrow: String
+    let title: String
+    var subtitle: String? = nil
+    @ViewBuilder var trailing: () -> Trailing
+
+    init(
+        eyebrow: String,
+        title: String,
+        subtitle: String? = nil,
+        @ViewBuilder trailing: @escaping () -> Trailing
+    ) {
+        self.eyebrow = eyebrow
+        self.title = title
+        self.subtitle = subtitle
+        self.trailing = trailing
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(eyebrow.uppercased())
+                    .font(AdminTheme.fontAdminSans(size: 10, weight: .semibold))
+                    .tracking(AdminTheme.Typography.dayHeaderTracking)
+                    .foregroundStyle(AdminTheme.stone500)
+
+                Text(title)
+                    .font(AdminTheme.fontAdminSerif(size: 22))
+                    .foregroundStyle(AdminTheme.stone900)
+
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(AdminTheme.fontAdminSans(size: 12))
+                        .foregroundStyle(AdminTheme.stone500)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            trailing()
+        }
+    }
+}
+
+extension AdminAvailabilitySectionHeader where Trailing == EmptyView {
+    init(eyebrow: String, title: String, subtitle: String? = nil) {
+        self.init(eyebrow: eyebrow, title: title, subtitle: subtitle) {
+            EmptyView()
+        }
+    }
+}
+
+/// One white panel: header, hairline, then body. Keeps weekly hours and
+/// date overrides as two distinct blocks instead of a stack of equal cards.
+struct AdminAvailabilitySectionCard<Header: View, Content: View>: View {
+    var header: Header
+    var content: Content
+
+    init(
+        @ViewBuilder header: () -> Header,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.header = header()
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 14)
+
+            Divider()
+                .overlay(AdminTheme.stone200)
+
+            content
+        }
+        .background(AdminTheme.cardFill)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(AdminTheme.stone200, lineWidth: 1)
+        )
+        .shadow(color: AdminTheme.cardShadow, radius: 8, x: 0, y: 2)
+    }
+}
+
 struct AdminAvailabilityCard<Content: View>: View {
     @ViewBuilder let content: Content
 

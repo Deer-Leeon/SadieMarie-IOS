@@ -39,6 +39,7 @@ final class ManualBookingViewModel {
     var selectedDate: String?
     var selectedSlot: String?
     private(set) var monthSlots: [String: [String]] = [:]
+    private(set) var occupiedStartMs: Set<Int64> = []
     private(set) var availableDates: [String] = []
     private(set) var studioDayDates: Set<String> = []
     private(set) var scheduleAvailability: [ScheduleAvailabilityBlock] = []
@@ -47,9 +48,29 @@ final class ManualBookingViewModel {
     private(set) var monthError: String?
 
     private let initialDateISO: String?
+    private let seedHour: Int?
+    private var seededSlotApplied = false
     private let studioToday: String
     private var mayAdvanceFromEmptyStartMonth = true
     private var slotsLoadGeneration = 0
+    private var monthCache: [MonthCacheKey: MonthCacheEntry] = [:]
+    private var monthInflight: [MonthCacheKey: Task<MonthCacheEntry, Error>] = [:]
+
+    private struct MonthCacheKey: Hashable {
+        let eventTypeId: Int
+        let year: Int
+        let month: Int
+    }
+
+    private struct MonthCacheEntry {
+        var monthSlots: [String: [String]]
+        var occupiedStartMs: Set<Int64>
+        var availableDates: [String]
+        var studioDayDates: Set<String>
+        var scheduleAvailability: [ScheduleAvailabilityBlock]
+        var scheduleOverrides: [ScheduleOverride]
+        var error: String?
+    }
 
     enum ClientEntryMode: Hashable {
         case existing
@@ -65,10 +86,16 @@ final class ManualBookingViewModel {
     var clientEntryMode: ClientEntryMode = .existing
     var clientSearchQuery = ""
 
-    init(initialDate: Date, prefilledClient: Client? = nil) {
+    init(initialDate: Date, seedHour: Int? = nil, prefilledClient: Client? = nil) {
         studioToday = StudioTime.todayInStudio()
         let iso = StudioTime.yyyyMMdd(from: initialDate)
         initialDateISO = iso >= studioToday ? iso : nil
+        if let seedHour, (0...23).contains(seedHour) {
+            self.seedHour = seedHour
+        } else {
+            self.seedHour = nil
+        }
+        mayAdvanceFromEmptyStartMonth = initialDateISO == nil
 
         let components = StudioTime.calendar.dateComponents([.year, .month], from: initialDate)
         viewYear = components.year ?? StudioTime.calendar.component(.year, from: Date())
@@ -247,6 +274,11 @@ final class ManualBookingViewModel {
         return monthSlots[selectedDate] ?? []
     }
 
+    /// True while the visible month is fetching and we don't yet have a selected day.
+    var isTimesLoading: Bool {
+        monthLoading && selectedDate == nil
+    }
+
     /// Studio open-hours windows for the selected day (for green/black slot dots).
     var selectedDayWindows: [StudioScheduleWindows.TimeWindow] {
         guard let selectedDate else { return [] }
@@ -266,6 +298,13 @@ final class ManualBookingViewModel {
             durationMins: selectedService?.durationMins,
             windows: selectedDayWindows
         )
+    }
+
+    func slotIsOccupied(_ slotIsoUtc: String) -> Bool {
+        guard let ms = ManualBookingSlotsParser.epochMs(isoUtc: slotIsoUtc) else {
+            return false
+        }
+        return occupiedStartMs.contains(ms)
     }
 
     func isStudioDay(_ ymd: String) -> Bool {
@@ -391,7 +430,6 @@ final class ManualBookingViewModel {
     }
 
     func shiftMonth(by delta: Int) {
-        guard !monthLoading else { return }
         var month = viewMonth + delta
         var year = viewYear
         if month < 1 {
@@ -403,6 +441,18 @@ final class ManualBookingViewModel {
         }
         viewYear = year
         viewMonth = month
+        selectedSlot = nil
+        monthError = nil
+
+        if let cached = cachedMonth(year: year, month: month) {
+            slotsLoadGeneration += 1
+            applyMonthEntry(cached)
+            monthLoading = false
+            prefetchNextMonth(afterYear: year, month: month)
+            return
+        }
+
+        selectedDate = nil
         Task { await loadMonth(year: year, month: month) }
     }
 
@@ -423,6 +473,7 @@ final class ManualBookingViewModel {
         selectedDate = nil
         selectedSlot = nil
         monthSlots = [:]
+        occupiedStartMs = []
         availableDates = []
         studioDayDates = []
         monthError = nil
@@ -491,18 +542,188 @@ final class ManualBookingViewModel {
     // MARK: - Private
 
     private func loadMonth(year: Int, month: Int) async {
-        guard let service = selectedService else { return }
+        guard selectedService != nil else { return }
 
         slotsLoadGeneration += 1
         let generation = slotsLoadGeneration
 
+        if let cached = cachedMonth(year: year, month: month) {
+            if shouldAdvanceFromEmptyStart(entry: cached, year: year, month: month) {
+                mayAdvanceFromEmptyStartMonth = false
+                let next = nextYearMonth(year: year, month: month)
+                viewYear = next.year
+                viewMonth = next.month
+                await loadMonth(year: next.year, month: next.month)
+                return
+            }
+            applyMonthEntry(cached)
+            monthLoading = false
+            prefetchNextMonth(afterYear: year, month: month)
+            return
+        }
+
         monthLoading = true
         monthError = nil
-        monthSlots = [:]
-        availableDates = []
-        studioDayDates = []
         selectedDate = nil
         selectedSlot = nil
+
+        defer {
+            if generation == slotsLoadGeneration {
+                monthLoading = false
+            }
+        }
+
+        do {
+            let entry = try await fetchAndCacheMonth(year: year, month: month)
+            guard generation == slotsLoadGeneration else { return }
+
+            if shouldAdvanceFromEmptyStart(entry: entry, year: year, month: month) {
+                mayAdvanceFromEmptyStartMonth = false
+                let next = nextYearMonth(year: year, month: month)
+                viewYear = next.year
+                viewMonth = next.month
+                await loadMonth(year: next.year, month: next.month)
+                return
+            }
+
+            mayAdvanceFromEmptyStartMonth = false
+            applyMonthEntry(entry)
+            prefetchNextMonth(afterYear: year, month: month)
+        } catch let error as AdminAPIError {
+            guard generation == slotsLoadGeneration else { return }
+            monthError = message(for: error)
+        } catch {
+            guard generation == slotsLoadGeneration else { return }
+            monthError = error.localizedDescription
+        }
+    }
+
+    private func shouldAdvanceFromEmptyStart(entry: MonthCacheEntry, year: Int, month: Int) -> Bool {
+        guard initialDateISO == nil else { return false }
+        guard entry.availableDates.isEmpty, mayAdvanceFromEmptyStartMonth else { return false }
+        guard entry.error != "No open days left this month." else { return false }
+        let todayParts = StudioTime.calendar.dateComponents([.year, .month], from: Date())
+        return year == (todayParts.year ?? 0) && month == (todayParts.month ?? 0)
+    }
+
+    private func nextYearMonth(year: Int, month: Int) -> (year: Int, month: Int) {
+        var nextMonth = month + 1
+        var nextYear = year
+        if nextMonth > 12 {
+            nextMonth = 1
+            nextYear += 1
+        }
+        return (nextYear, nextMonth)
+    }
+
+    private func cacheKey(year: Int, month: Int) -> MonthCacheKey? {
+        guard let eventTypeId = selectedService?.eventTypeId else { return nil }
+        return MonthCacheKey(eventTypeId: eventTypeId, year: year, month: month)
+    }
+
+    private func cachedMonth(year: Int, month: Int) -> MonthCacheEntry? {
+        guard let key = cacheKey(year: year, month: month) else { return nil }
+        return monthCache[key]
+    }
+
+    private func applyMonthEntry(_ entry: MonthCacheEntry) {
+        monthSlots = entry.monthSlots
+        occupiedStartMs = entry.occupiedStartMs
+        availableDates = entry.availableDates
+        studioDayDates = entry.studioDayDates
+        scheduleAvailability = entry.scheduleAvailability
+        scheduleOverrides = entry.scheduleOverrides
+        monthError = entry.error
+
+        let keepSeededSlot = seededSlotApplied && selectedDate == initialDateISO
+        if !keepSeededSlot {
+            selectedSlot = nil
+        }
+
+        if entry.availableDates.isEmpty {
+            if let initialDateISO, initialDateISO >= studioToday,
+               isStudioDateInMonth(initialDateISO, year: viewYear, month: viewMonth) {
+                selectedDate = initialDateISO
+            } else {
+                selectedDate = nil
+            }
+            applySeededSlotIfNeeded()
+            return
+        }
+
+        if let initialDateISO,
+           isStudioDateInMonth(initialDateISO, year: viewYear, month: viewMonth),
+           entry.availableDates.contains(initialDateISO) || initialDateISO >= studioToday {
+            selectedDate = initialDateISO
+        } else {
+            selectedDate = entry.availableDates.first
+        }
+        applySeededSlotIfNeeded()
+    }
+
+    private func isStudioDateInMonth(_ iso: String, year: Int, month: Int) -> Bool {
+        let parts = iso.split(separator: "-")
+        guard parts.count == 3,
+              let y = Int(parts[0]),
+              let m = Int(parts[1]) else {
+            return false
+        }
+        return y == year && m == month
+    }
+
+    private func applySeededSlotIfNeeded() {
+        guard !seededSlotApplied,
+              let seedHour,
+              let seedDate = initialDateISO,
+              selectedDate == seedDate else {
+            return
+        }
+        let times = monthSlots[seedDate] ?? []
+        guard let match = times.first(where: {
+            StudioTime.slotMatchesStudioHour(isoUtc: $0, hour: seedHour)
+        }) else {
+            return
+        }
+        seededSlotApplied = true
+        selectedSlot = match
+    }
+
+    private func prefetchNextMonth(afterYear year: Int, month: Int) {
+        guard selectedService != nil else { return }
+        let next = nextYearMonth(year: year, month: month)
+        Task {
+            _ = try? await fetchAndCacheMonth(year: next.year, month: next.month)
+        }
+    }
+
+    private func fetchAndCacheMonth(year: Int, month: Int) async throws -> MonthCacheEntry {
+        guard let key = cacheKey(year: year, month: month) else {
+            throw AdminAPIError.invalidResponse
+        }
+        if let cached = monthCache[key] { return cached }
+        if let existing = monthInflight[key] {
+            return try await existing.value
+        }
+
+        let task = Task { () throws -> MonthCacheEntry in
+            try await self.performMonthFetch(year: year, month: month)
+        }
+        monthInflight[key] = task
+        do {
+            let entry = try await task.value
+            monthCache[key] = entry
+            monthInflight[key] = nil
+            return entry
+        } catch {
+            monthInflight[key] = nil
+            throw error
+        }
+    }
+
+    private func performMonthFetch(year: Int, month: Int) async throws -> MonthCacheEntry {
+        guard let service = selectedService else {
+            throw AdminAPIError.invalidResponse
+        }
 
         let rangeStart = studioDateString(year: year, month: month, day: 1)
         let rangeEnd = studioDateString(
@@ -512,87 +733,61 @@ final class ManualBookingViewModel {
         )
         let queryStart = rangeStart < studioToday ? studioToday : rangeStart
 
-        defer {
-            if generation == slotsLoadGeneration {
-                monthLoading = false
-            }
-        }
-
         if queryStart > rangeEnd {
-            monthError = "No open days left this month."
-            return
+            return MonthCacheEntry(
+                monthSlots: [:],
+                occupiedStartMs: [],
+                availableDates: [],
+                studioDayDates: [],
+                scheduleAvailability: [],
+                scheduleOverrides: [],
+                error: "No open days left this month."
+            )
         }
 
-        do {
-            async let slotsDataTask = AdminAPIClient.shared.fetchManualBookingSlots(
-                eventTypeId: service.eventTypeId,
-                date: queryStart,
-                end: rangeEnd
+        async let slotsDataTask = AdminAPIClient.shared.fetchManualBookingSlots(
+            eventTypeId: service.eventTypeId,
+            date: queryStart,
+            end: rangeEnd
+        )
+        async let scheduleTask = AdminAPIClient.shared.fetchAvailability()
+
+        let data = try await slotsDataTask
+        let schedule = try? await scheduleTask
+
+        var availability: [ScheduleAvailabilityBlock] = []
+        var overrides: [ScheduleOverride] = []
+        var studioDays: Set<String> = []
+        if let schedule {
+            availability = schedule.schedule.availability
+            overrides = schedule.overrides
+            studioDays = StudioScheduleWindows.studioDays(
+                rangeStart: rangeStart,
+                rangeEnd: rangeEnd,
+                availability: availability,
+                overrides: overrides
             )
-            async let scheduleTask = AdminAPIClient.shared.fetchAvailability()
-
-            let data = try await slotsDataTask
-            let schedule = try? await scheduleTask
-
-            guard generation == slotsLoadGeneration else { return }
-
-            if let schedule {
-                scheduleAvailability = schedule.schedule.availability
-                scheduleOverrides = schedule.overrides
-                studioDayDates = StudioScheduleWindows.studioDays(
-                    rangeStart: rangeStart,
-                    rangeEnd: rangeEnd,
-                    availability: scheduleAvailability,
-                    overrides: scheduleOverrides
-                )
-            } else {
-                scheduleAvailability = []
-                scheduleOverrides = []
-                studioDayDates = []
-            }
-
-            let openDates = ManualBookingSlotsParser.datesWithOpenSlots(
-                from: data,
-                notBefore: studioToday
-            )
-            monthSlots = ManualBookingSlotsParser.slotsByDay(from: data, openDates: openDates)
-            availableDates = openDates
-
-            if openDates.isEmpty {
-                let todayParts = StudioTime.calendar.dateComponents([.year, .month], from: Date())
-                if mayAdvanceFromEmptyStartMonth,
-                   year == (todayParts.year ?? 0),
-                   month == (todayParts.month ?? 0) {
-                    mayAdvanceFromEmptyStartMonth = false
-                    var nextMonth = month + 1
-                    var nextYear = year
-                    if nextMonth > 12 {
-                        nextMonth = 1
-                        nextYear += 1
-                    }
-                    viewYear = nextYear
-                    viewMonth = nextMonth
-                    await loadMonth(year: nextYear, month: nextMonth)
-                    return
-                }
-                monthError = "No open days in \(StudioTime.monthLabel(year: year, month: month)). Try another month."
-                return
-            }
-
-            mayAdvanceFromEmptyStartMonth = false
-
-            if let initialDateISO, openDates.contains(initialDateISO) {
-                selectedDate = initialDateISO
-            } else {
-                selectedDate = openDates.first
-            }
-        } catch let error as AdminAPIError {
-            guard generation == slotsLoadGeneration else { return }
-            monthError = message(for: error)
-        } catch {
-            guard generation == slotsLoadGeneration else { return }
-            monthError = error.localizedDescription
         }
+
+        let openDates = ManualBookingSlotsParser.datesWithOpenSlots(
+            from: data,
+            notBefore: studioToday
+        )
+        let slots = ManualBookingSlotsParser.slotsByDay(from: data, openDates: openDates)
+        let occupied = ManualBookingSlotsParser.occupiedStartMs(from: data)
+        let emptyError = openDates.isEmpty
+            ? "No open days in \(StudioTime.monthLabel(year: year, month: month)). Try another month."
+            : nil
+
+        return MonthCacheEntry(
+            monthSlots: slots,
+            occupiedStartMs: occupied,
+            availableDates: openDates,
+            studioDayDates: studioDays,
+            scheduleAvailability: availability,
+            scheduleOverrides: overrides,
+            error: emptyError
+        )
     }
 
     private func studioDateString(year: Int, month: Int, day: Int) -> String {

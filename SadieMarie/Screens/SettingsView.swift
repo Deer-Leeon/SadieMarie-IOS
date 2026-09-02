@@ -1,14 +1,14 @@
 import SwiftUI
 import ClerkKit
 
-/// Account settings screen. Currently surfaces the signed-in admin's
-/// email/name and a Clerk-backed sign-out button. Add new sections
-/// (notification preferences, theme, business profile, etc.) by
-/// extending the outer `List`.
+/// Account settings screen. Surfaces the signed-in admin's email/name
+/// and a Clerk-backed sign-out button. Booking alerts are always on
+/// while signed in — there is no mute toggle.
 ///
 /// Opened from the Bookings toolbar gear.
 struct SettingsView: View {
     @Environment(Clerk.self) private var clerk
+    @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
 
     @State private var isSigningOut = false
@@ -34,6 +34,13 @@ struct SettingsView: View {
                     if let nameLabel {
                         LabeledContent("Name", value: nameLabel)
                     }
+                }
+
+                Section {
+                    Text("You stay signed in on this iPhone until you tap Log Out. Booking alerts keep firing while the app is closed — they stop only after Log Out, or if iPhone Settings blocks notifications.")
+                        .font(AdminTheme.fontAdminSans(size: 12))
+                        .foregroundStyle(AdminTheme.stone500)
+                        .listRowBackground(Color.clear)
                 }
 
                 Section {
@@ -88,7 +95,9 @@ struct SettingsView: View {
         Task { @MainActor in
             defer { isSigningOut = false }
             do {
+                await PushRegistration.shared.unregisterOnLogout()
                 try await clerk.auth.signOut()
+                appState.resetForSignOut()
             } catch {
                 AppLogger.authError("Clerk sign-out failed: \(error.localizedDescription)")
                 signOutErrorMessage = error.localizedDescription
@@ -99,4 +108,5 @@ struct SettingsView: View {
 
 #Preview {
     SettingsView()
+        .environment(AppState())
 }

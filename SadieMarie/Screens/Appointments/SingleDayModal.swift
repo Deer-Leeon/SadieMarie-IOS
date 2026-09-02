@@ -6,9 +6,9 @@ struct SingleDayModal: View {
     let initialDate: Date
     var onClose: () -> Void
     var onAppointmentClick: ((Appointment) -> Void)?
+    var onHourClick: ((Date, Int) -> Void)?
 
     @State private var activeDate: Date
-    @State private var blockDialogHour: Int?
     @State private var selectedBlock: TimeBlock?
     @State private var blockPendingEdit: TimeBlock?
 
@@ -18,12 +18,14 @@ struct SingleDayModal: View {
         viewModel: BookingsViewModel,
         initialDate: Date,
         onClose: @escaping () -> Void,
-        onAppointmentClick: ((Appointment) -> Void)? = nil
+        onAppointmentClick: ((Appointment) -> Void)? = nil,
+        onHourClick: ((Date, Int) -> Void)? = nil
     ) {
         self.viewModel = viewModel
         self.initialDate = initialDate
         self.onClose = onClose
         self.onAppointmentClick = onAppointmentClick
+        self.onHourClick = onHourClick
         _activeDate = State(initialValue: Calendar.current.startOfDay(for: initialDate))
     }
 
@@ -33,6 +35,17 @@ struct SingleDayModal: View {
 
     private var positionedBlocks: [PositionedTimeBlock] {
         TimelineEngine.layoutBlocksForDay(date: activeDate, blocks: viewModel.timeBlocks)
+    }
+
+    private var closedHatchBands: [StudioScheduleWindows.MinuteBand] {
+        guard viewModel.hasSchedule else { return [] }
+        let holes = positioned.compactMap { StudioScheduleWindows.minuteBand(from: $0.appointment) }
+        return StudioScheduleWindows.closedBands(
+            forYMD: StudioTime.yyyyMMdd(from: activeDate),
+            availability: viewModel.scheduleAvailability,
+            overrides: viewModel.scheduleOverrides,
+            holes: holes
+        )
     }
 
     var body: some View {
@@ -46,13 +59,16 @@ struct SingleDayModal: View {
             VStack(spacing: 0) {
                 modalHeader
 
-                Text("Tap an hour to block time")
+                Text("Tap an hour to book or block · tap a block to edit")
                     .font(AdminTheme.fontAdminSans(size: 11, weight: .medium))
                     .foregroundStyle(AdminTheme.stone500)
                     .textCase(.uppercase)
                     .tracking(1.4)
+                    .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+                    .padding(.bottom, 10)
                     .background(AdminTheme.cream.opacity(0.98))
                     .overlay(alignment: .bottom) {
                         Rectangle()
@@ -64,13 +80,16 @@ struct SingleDayModal: View {
                     items: positioned,
                     timeBlocks: positionedBlocks,
                     removingBlockId: viewModel.removingBlockId,
-                    onHourTap: { blockDialogHour = $0 },
+                    onHourTap: { hour in
+                        onHourClick?(activeDate, hour)
+                    },
                     onAppointmentTap: onAppointmentClick,
-                    onBlockTap: { selectedBlock = $0 }
+                    onBlockTap: { selectedBlock = $0 },
+                    hatchBands: closedHatchBands
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.horizontal, 4)
-                .padding(.bottom, 8)
+                .padding(.horizontal, 10)
+                .padding(.bottom, 12)
             }
             .frame(maxWidth: 520)
             .frame(height: UIScreen.main.bounds.height * 0.82)
@@ -92,16 +111,6 @@ struct SingleDayModal: View {
                     submissionError: viewModel.errorMessage,
                     onCancel: { blockPendingEdit = nil },
                     onSubmit: { submitBlockEdit(block, request: $0) }
-                )
-                .zIndex(60)
-            } else if let hour = blockDialogHour {
-                BlockTimePopup(
-                    activeDate: activeDate,
-                    initialHour: hour,
-                    isSubmitting: viewModel.isCreatingBlock,
-                    submissionError: viewModel.errorMessage,
-                    onCancel: { blockDialogHour = nil },
-                    onSubmit: submitBlock
                 )
                 .zIndex(60)
             }
@@ -205,16 +214,7 @@ struct SingleDayModal: View {
     private func shiftDay(by offset: Int) {
         guard let next = calendar.date(byAdding: .day, value: offset, to: activeDate) else { return }
         activeDate = calendar.startOfDay(for: next)
-        blockDialogHour = nil
         blockPendingEdit = nil
-    }
-
-    private func submitBlock(_ request: BlockTimeRequest) {
-        Task {
-            if await viewModel.createTimeBlock(request) {
-                blockDialogHour = nil
-            }
-        }
     }
 
     private func submitBlockEdit(_ block: TimeBlock, request: BlockTimeRequest) {

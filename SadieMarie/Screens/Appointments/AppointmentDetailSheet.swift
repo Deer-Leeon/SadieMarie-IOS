@@ -3,9 +3,10 @@ import SwiftUI
 /// Deep-dive sheet for a single booking (mirrors web `AppointmentModal`).
 struct AppointmentDetailSheet: View {
     let appointment: Appointment
+    var knownAppointments: [Appointment] = []
     var onDismiss: () -> Void
     var onMutated: () -> Void
-    var onPaymentMutated: (AppointmentPaymentSummary?) -> Void
+    var onPaymentMutated: (AppointmentPaymentSummary?, [String]) -> Void
 
     @State private var statusAction: StatusAction?
     @State private var statusError: String?
@@ -21,11 +22,13 @@ struct AppointmentDetailSheet: View {
 
     init(
         appointment: Appointment,
+        knownAppointments: [Appointment] = [],
         onDismiss: @escaping () -> Void,
         onMutated: @escaping () -> Void,
-        onPaymentMutated: @escaping (AppointmentPaymentSummary?) -> Void = { _ in }
+        onPaymentMutated: @escaping (AppointmentPaymentSummary?, [String]) -> Void = { _, _ in }
     ) {
         self.appointment = appointment
+        self.knownAppointments = knownAppointments
         self.onDismiss = onDismiss
         self.onMutated = onMutated
         self.onPaymentMutated = onPaymentMutated
@@ -89,9 +92,12 @@ struct AppointmentDetailSheet: View {
                         AppointmentPaymentCard(
                             appointment: appointment,
                             payment: $livePayment,
-                            onPaymentChanged: { payment in
-                                livePayment = payment
-                                onPaymentMutated(payment)
+                            knownAppointments: knownAppointments,
+                            onPaymentChanged: { payment, ids in
+                                if ids.contains(appointment.id) {
+                                    livePayment = payment
+                                }
+                                onPaymentMutated(payment, ids)
                             }
                         )
                     }

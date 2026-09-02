@@ -438,8 +438,14 @@ final class ClientProfileViewModel {
     }
 
     func applyPayment(appointmentId: String, payment: AppointmentPaymentSummary?) {
+        applyPayment(appointmentIds: [appointmentId], payment: payment)
+    }
+
+    func applyPayment(appointmentIds: [String], payment: AppointmentPaymentSummary?) {
+        guard !appointmentIds.isEmpty else { return }
+        let ids = Set(appointmentIds)
         history = history.map { appointment in
-            appointment.id == appointmentId
+            ids.contains(appointment.id)
                 ? appointment.withTerminalPayment(payment)
                 : appointment
         }

@@ -42,13 +42,9 @@ struct ManualBookingSlotPickerView: View {
             VStack(alignment: .leading, spacing: 10) {
                 monthNavigation
 
-                if viewModel.monthLoading {
-                    monthLoadingContent
-                } else {
-                    calendarGrid
-                }
+                calendarGrid
 
-                if let monthError = viewModel.monthError, !viewModel.monthLoading {
+                if let monthError = viewModel.monthError, !viewModel.isTimesLoading {
                     Text(monthError)
                         .font(AdminTheme.fontAdminSans(size: 11))
                         .foregroundStyle(AdminTheme.stone500)
@@ -76,18 +72,6 @@ struct ManualBookingSlotPickerView: View {
         )
     }
 
-    private var monthLoadingContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ManualBookingLoadingPanel(
-                title: "Checking availability",
-                subtitle: "Loading open days from Cal.com"
-            )
-
-            ManualBookingCalendarSkeleton(rowCount: 5, cellSize: 28)
-                .opacity(0.7)
-        }
-    }
-
     private var timesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
@@ -102,7 +86,7 @@ struct ManualBookingSlotPickerView: View {
                     .textCase(.uppercase)
             }
 
-            if viewModel.monthLoading {
+            if viewModel.isTimesLoading {
                 HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.small)
@@ -115,7 +99,7 @@ struct ManualBookingSlotPickerView: View {
                 .padding(.vertical, 4)
             } else if !viewModel.slotsForSelectedDay.isEmpty {
                 scrollableSlotsGrid(compact: true)
-                Text("Green = fits studio hours · Black = outside or overruns")
+                Text("Filled = selected · Green = hours · Amber = busy · Black = outside")
                     .font(AdminTheme.fontAdminSans(size: 9, weight: .medium))
                     .tracking(1.4)
                     .foregroundStyle(AdminTheme.stone500)
@@ -140,7 +124,7 @@ struct ManualBookingSlotPickerView: View {
         let slotCount = viewModel.slotsForSelectedDay.count
         let columnsPerRow = compact ? 3 : 3
         let rowCount = max(1, (slotCount + columnsPerRow - 1) / columnsPerRow)
-        let rowHeight: CGFloat = compact ? 40 : 44
+        let rowHeight: CGFloat = compact ? 46 : 52
         let naturalHeight = CGFloat(rowCount) * rowHeight + CGFloat(max(0, rowCount - 1)) * 8
         let maxVisibleHeight: CGFloat = compact ? 168 : 220
         let needsScroll = naturalHeight > maxVisibleHeight || slotCount > 9
@@ -166,9 +150,9 @@ struct ManualBookingSlotPickerView: View {
 
     private var compactSlotsGrid: some View {
         LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 72, maximum: 110), spacing: 8)],
+            columns: [GridItem(.adaptive(minimum: 70, maximum: 110), spacing: 6)],
             alignment: .leading,
-            spacing: 8
+            spacing: 6
         ) {
             ForEach(viewModel.slotsForSelectedDay, id: \.self) { slot in
                 slotButton(slot, compact: true)
@@ -270,13 +254,9 @@ struct ManualBookingSlotPickerView: View {
         VStack(spacing: 10) {
             monthNavigation
 
-            if viewModel.monthLoading {
-                monthLoadingContent
-            } else {
-                calendarGrid
-            }
+            calendarGrid
 
-            if let monthError = viewModel.monthError, !viewModel.monthLoading {
+            if let monthError = viewModel.monthError, !viewModel.isTimesLoading {
                 Text(monthError)
                     .font(AdminTheme.fontAdminSans(size: 12))
                     .foregroundStyle(AdminTheme.stone500)
@@ -306,14 +286,14 @@ struct ManualBookingSlotPickerView: View {
                     .textCase(.uppercase)
             }
 
-            if viewModel.monthLoading {
+            if viewModel.isTimesLoading {
                 ManualBookingLoadingPanel(
                     title: "Loading times",
                     subtitle: "Available after open days load"
                 )
             } else if !viewModel.slotsForSelectedDay.isEmpty {
                 scrollableSlotsGrid(compact: false)
-                Text("Green = fits studio hours · Black = outside or overruns")
+                Text("Filled = selected · Green = hours · Amber = busy · Black = outside")
                     .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
                     .tracking(1.6)
                     .foregroundStyle(AdminTheme.stone500)
@@ -371,7 +351,6 @@ struct ManualBookingSlotPickerView: View {
                 .clipShape(Circle())
         }
         .buttonStyle(.plain)
-        .disabled(viewModel.monthLoading)
     }
 
     private func dayButton(_ cell: MonthCell, compact: Bool) -> some View {
@@ -419,32 +398,88 @@ struct ManualBookingSlotPickerView: View {
     private func slotButton(_ slot: String, compact: Bool) -> some View {
         let active = viewModel.selectedSlot == slot
         let inStudio = viewModel.slotFitsStudioHours(slot)
+        let occupied = viewModel.slotIsOccupied(slot)
+        let busyAmber = Color(red: 245 / 255, green: 158 / 255, blue: 11 / 255)
+        let busyAmberSelected = Color(red: 253 / 255, green: 230 / 255, blue: 138 / 255)
         return Button {
             viewModel.selectSlot(slot)
         } label: {
-            HStack(spacing: compact ? 5 : 6) {
-                Circle()
-                    .fill(inStudio
-                          ? (active ? AdminTheme.confirmedText.opacity(0.85) : AdminTheme.confirmedText)
-                          : (active ? AdminTheme.stone700 : AdminTheme.stone900))
-                    .frame(width: 6, height: 6)
-                Text(StudioTime.formatSlotInStudioTime(isoUtc: slot))
-                    .font(AdminTheme.fontAdminSans(size: compact ? 13 : 14, weight: active ? .semibold : .regular))
-                    .foregroundStyle(active ? AdminTheme.stone900 : AdminTheme.stone700)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+            VStack(spacing: compact ? 1 : 2) {
+                HStack(spacing: compact ? 4 : 6) {
+                    Circle()
+                        .fill(slotDotColor(
+                            active: active,
+                            occupied: occupied,
+                            inStudio: inStudio,
+                            busyAmber: busyAmber,
+                            busyAmberSelected: busyAmberSelected
+                        ))
+                        .frame(width: compact ? 5 : 6, height: compact ? 5 : 6)
+                    Text(StudioTime.formatSlotInStudioTime(isoUtc: slot))
+                        .font(AdminTheme.fontAdminSans(
+                            size: compact ? 12 : 14,
+                            weight: active ? .semibold : .regular
+                        ))
+                        .foregroundStyle(active ? AdminTheme.cream : AdminTheme.stone700)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+                if occupied {
+                    Text("Busy")
+                        .font(AdminTheme.fontAdminSans(
+                            size: compact ? 8 : 10,
+                            weight: .medium
+                        ))
+                        .tracking(compact ? 0.6 : 0.8)
+                        .textCase(.uppercase)
+                        .foregroundStyle(active ? busyAmberSelected : AdminTheme.awaitingPaymentText)
+                }
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, compact ? 9 : 10)
-            .padding(.horizontal, 6)
-            .background(active ? AdminTheme.stone50 : AdminTheme.cardFill)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .padding(.vertical, compact ? (occupied ? 6 : 7) : (occupied ? 8 : 10))
+            .padding(.horizontal, compact ? 4 : 6)
+            .background(slotBackground(active: active, occupied: occupied))
+            .clipShape(RoundedRectangle(cornerRadius: compact ? 8 : 10))
             .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(active ? AdminTheme.stone300 : AdminTheme.stone200, lineWidth: 1)
+                RoundedRectangle(cornerRadius: compact ? 8 : 10)
+                    .stroke(slotBorder(active: active, occupied: occupied), lineWidth: 1)
             )
+            .shadow(color: active ? AdminTheme.stone900.opacity(0.18) : .clear, radius: 2, y: 1)
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(active ? .isSelected : [])
+        .accessibilityLabel(
+            occupied
+                ? "\(StudioTime.formatSlotInStudioTime(isoUtc: slot)), busy, still bookable"
+                : StudioTime.formatSlotInStudioTime(isoUtc: slot)
+        )
+    }
+
+    private func slotDotColor(
+        active: Bool,
+        occupied: Bool,
+        inStudio: Bool,
+        busyAmber: Color,
+        busyAmberSelected: Color
+    ) -> Color {
+        if active {
+            if occupied { return busyAmberSelected }
+            return inStudio ? AdminTheme.confirmedBorder : AdminTheme.cream
+        }
+        if occupied { return busyAmber }
+        return inStudio ? AdminTheme.confirmedText : AdminTheme.stone900
+    }
+
+    private func slotBackground(active: Bool, occupied: Bool) -> Color {
+        if active { return AdminTheme.stone900 }
+        if occupied { return AdminTheme.awaitingPaymentBackground.opacity(0.7) }
+        return AdminTheme.cardFill
+    }
+
+    private func slotBorder(active: Bool, occupied: Bool) -> Color {
+        if active { return AdminTheme.stone900 }
+        if occupied { return AdminTheme.pendingBorder }
+        return AdminTheme.stone200
     }
 
     private func firstWeekdayOfMonth(year: Int, month: Int) -> Int {

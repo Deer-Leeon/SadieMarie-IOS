@@ -4,7 +4,7 @@ import ClerkKit
 /// Services tab — CMS catalogue (mirrors `/admin/services`).
 struct ServicesView: View {
     @Environment(Clerk.self) private var clerk
-    @State private var viewModel = ServicesViewModel()
+    @Bindable var viewModel: ServicesViewModel
     @State private var formMode: ServiceFormMode?
     @State private var formError: String?
 
@@ -36,12 +36,12 @@ struct ServicesView: View {
             .toolbar(.hidden, for: .navigationBar)
             .preferredColorScheme(.light)
             .task(id: clerk.session?.id) {
-                guard clerk.session != nil else { return }
+                guard clerk.session != nil, !viewModel.hasLoaded else { return }
                 await viewModel.load()
             }
             .refreshable {
                 guard clerk.session != nil else { return }
-                await viewModel.load()
+                await viewModel.load(showLoading: false)
             }
             .sheet(item: $formMode) { mode in
                 ServiceFormSheet(
@@ -298,5 +298,5 @@ struct ServicesView: View {
 }
 
 #Preview {
-    ServicesView()
+    ServicesView(viewModel: ServicesViewModel())
 }

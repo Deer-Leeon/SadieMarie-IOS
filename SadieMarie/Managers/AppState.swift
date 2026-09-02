@@ -53,5 +53,6 @@ final class AppState {
         currentDate = Date()
         lastNoShowFlagPatch = nil
         noShowFlagRevision = 0
+        PushRegistration.shared.pendingOpenAppointmentId = nil
     }
 }

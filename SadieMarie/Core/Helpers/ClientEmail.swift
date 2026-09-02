@@ -67,4 +67,16 @@ enum AdminAPIResponseParser {
             return (error as LocalizedError).errorDescription ?? error.localizedDescription
         }
     }
+
+    static func userFacingMessage(from error: Error, fallback: String) -> String {
+        if let api = error as? AdminAPIError {
+            switch api {
+            case .server(_, let body):
+                return message(from: body, fallback: fallback)
+            default:
+                return api.localizedDescription
+            }
+        }
+        return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
 }

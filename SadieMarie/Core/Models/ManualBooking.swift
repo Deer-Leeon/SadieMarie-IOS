@@ -364,6 +364,32 @@ enum ManualBookingSlotsParser {
     static func slotsByDay(from data: Data, openDates: [String]) -> [String: [String]] {
         Dictionary(uniqueKeysWithValues: openDates.map { ($0, slotTimes(from: data, date: $0)) })
     }
+
+    /// Occupied slot starts from `{ occupied: string[] }` (still selectable).
+    static func occupiedStartMs(from data: Data) -> Set<Int64> {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let raw = root["occupied"] as? [Any] else {
+            return []
+        }
+        var out = Set<Int64>()
+        for item in raw {
+            guard let iso = item as? String,
+                  let date = BookingDisplay.iso8601Date(from: iso) else {
+                continue
+            }
+            out.insert(Self.epochMs(date))
+        }
+        return out
+    }
+
+    static func epochMs(_ date: Date) -> Int64 {
+        Int64((date.timeIntervalSince1970 * 1000).rounded())
+    }
+
+    static func epochMs(isoUtc: String) -> Int64? {
+        guard let date = BookingDisplay.iso8601Date(from: isoUtc) else { return nil }
+        return epochMs(date)
+    }
 }
 
 // MARK: - Cal create response

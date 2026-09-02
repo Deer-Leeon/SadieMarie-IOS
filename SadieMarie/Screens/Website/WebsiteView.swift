@@ -5,7 +5,7 @@ import ClerkKit
 /// Website tab — manage the seven public site image slots.
 struct WebsiteView: View {
     @Environment(Clerk.self) private var clerk
-    @State private var viewModel = WebsiteViewModel()
+    @Bindable var viewModel: WebsiteViewModel
     @State private var pickerItem: PhotosPickerItem?
     @State private var activeSlot: WebsiteSlotItem?
     @State private var pendingImage: UIImage?
@@ -49,12 +49,12 @@ struct WebsiteView: View {
             .toolbar(.hidden, for: .navigationBar)
             .preferredColorScheme(.light)
             .task(id: clerk.session?.id) {
-                guard clerk.session != nil else { return }
+                guard clerk.session != nil, !viewModel.hasLoaded else { return }
                 await viewModel.load()
             }
             .refreshable {
                 guard clerk.session != nil else { return }
-                await viewModel.load()
+                await viewModel.load(showLoading: false)
             }
             .photosPicker(
                 isPresented: $isPhotoPickerPresented,
@@ -207,5 +207,5 @@ struct WebsiteView: View {
 }
 
 #Preview {
-    WebsiteView()
+    WebsiteView(viewModel: WebsiteViewModel())
 }
