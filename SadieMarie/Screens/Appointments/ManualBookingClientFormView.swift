@@ -38,19 +38,6 @@ struct ManualBookingClientFormView: View {
                 viewModel.emailTouched = true
             }
         }
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                if focusedField.wrappedValue == .phone {
-                    Spacer()
-                    Button("Next") {
-                        viewModel.phoneTouched = true
-                        viewModel.formatPhoneField()
-                        focusedField.wrappedValue = .email
-                    }
-                    .font(AdminTheme.fontAdminSans(size: 15, weight: .medium))
-                }
-            }
-        }
     }
 
     // MARK: - Mode
@@ -113,6 +100,9 @@ struct ManualBookingClientFormView: View {
                     .autocorrectionDisabled()
                     .font(AdminTheme.fontAdminSans(size: 15))
                     .foregroundStyle(AdminTheme.stone900)
+                    .focused(focusedField, equals: .search)
+                    .submitLabel(.done)
+                    .onSubmit { focusedField.wrappedValue = nil }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -139,49 +129,10 @@ struct ManualBookingClientFormView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.semanticRed.opacity(0.1))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
-            } else if let selected = viewModel.selectedDirectoryClient {
-                selectedClientCard(selected)
-            }
-
-            if !viewModel.isLoadingDirectoryClients, viewModel.directoryLoadError == nil {
+            } else {
                 clientResultsList
             }
         }
-    }
-
-    private func selectedClientCard(_ client: Client) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(AdminTheme.cream)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(client.displayName)
-                    .font(AdminTheme.fontAdminSerif(size: 17))
-                    .foregroundStyle(AdminTheme.cream)
-                let meta = [
-                    client.formattedPhone.isEmpty ? nil : client.formattedPhone,
-                    ClientEmail.usableDisplay(client.email),
-                ].compactMap { $0 }
-                if !meta.isEmpty {
-                    Text(meta.joined(separator: " · "))
-                        .font(AdminTheme.fontAdminSans(size: 12))
-                        .foregroundStyle(AdminTheme.stone300)
-                }
-            }
-            Spacer(minLength: 8)
-            Button("Clear") {
-                viewModel.clearSelectedDirectoryClient()
-            }
-            .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
-            .foregroundStyle(AdminTheme.stone300)
-        }
-        .padding(12)
-        .background(AdminTheme.stone900)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(AdminTheme.stone900, lineWidth: 1)
-        )
-        .shadow(color: AdminTheme.stone900.opacity(0.18), radius: 2, y: 1)
     }
 
     private var clientResultsList: some View {
@@ -199,42 +150,14 @@ struct ManualBookingClientFormView: View {
                 .padding(.vertical, 8)
             } else {
                 ForEach(results) { client in
-                    Button {
-                        viewModel.selectDirectoryClient(client)
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(client.displayName)
-                                    .font(AdminTheme.fontAdminSans(size: 14, weight: .medium))
-                                    .foregroundStyle(AdminTheme.stone900)
-                                let subtitle = [
-                                    client.formattedPhone.isEmpty ? nil : client.formattedPhone,
-                                    ClientEmail.usableDisplay(client.email),
-                                ].compactMap { $0 }.joined(separator: " · ")
-                                if !subtitle.isEmpty {
-                                    Text(subtitle)
-                                        .font(AdminTheme.fontAdminSans(size: 12))
-                                        .foregroundStyle(AdminTheme.stone500)
-                                }
-                            }
-                            Spacer()
-                            if viewModel.selectedDirectoryClient?.id == client.id {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(AdminTheme.stone900)
-                            }
-                        }
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 4)
-                    }
-                    .buttonStyle(.plain)
-
+                    directoryClientRow(client)
                     if client.id != results.last?.id {
                         Divider().overlay(AdminTheme.stone100)
                     }
                 }
             }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 4)
         .padding(.vertical, 4)
         .background(AdminTheme.cardFill)
         .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -242,6 +165,51 @@ struct ManualBookingClientFormView: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(AdminTheme.stone200, lineWidth: 1)
         )
+        .transaction { $0.animation = nil }
+    }
+
+    private func directoryClientRow(_ client: Client) -> some View {
+        let selected = viewModel.selectedDirectoryClient?.id == client.id
+        return Button {
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) {
+                viewModel.selectDirectoryClient(client)
+            }
+        } label: {
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(client.displayName)
+                        .font(AdminTheme.fontAdminSans(size: 14, weight: .medium))
+                        .foregroundStyle(selected ? AdminTheme.cream : AdminTheme.stone900)
+                    let subtitle = [
+                        client.formattedPhone.isEmpty ? nil : client.formattedPhone,
+                        ClientEmail.usableDisplay(client.email),
+                    ].compactMap { $0 }.joined(separator: " · ")
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(AdminTheme.fontAdminSans(size: 12))
+                            .foregroundStyle(selected ? AdminTheme.stone300 : AdminTheme.stone500)
+                    }
+                }
+                Spacer(minLength: 8)
+                if selected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(AdminTheme.cream)
+                }
+            }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .background(selected ? AdminTheme.stone900 : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityHint(selected ? "Deselects this client" : "Selects this client")
     }
 
     // MARK: - Locked / new
@@ -390,4 +358,5 @@ enum ManualBookingClientField: Hashable {
     case lastName
     case phone
     case email
+    case search
 }

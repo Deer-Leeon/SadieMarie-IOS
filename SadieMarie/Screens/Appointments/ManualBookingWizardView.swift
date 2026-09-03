@@ -12,6 +12,7 @@ struct ManualBookingWizardView: View {
     @State private var viewModel: ManualBookingViewModel
     @State private var expandedGroupIDs: Set<Int> = []
     @FocusState private var focusedClientField: ManualBookingClientField?
+    @FocusState private var notesFieldFocused: Bool
 
     init(
         bookingDate: Date,
@@ -41,20 +42,36 @@ struct ManualBookingWizardView: View {
     }
 
     var body: some View {
-        Group {
-            if viewModel.didCompleteBooking {
-                successContent
-            } else {
-                VStack(spacing: 0) {
-                    header
-                    stepProgressBar
-                    bodyContent
-                    footer
+        NavigationStack {
+            Group {
+                if viewModel.didCompleteBooking {
+                    successContent
+                } else {
+                    VStack(spacing: 0) {
+                        header
+                        bodyContent
+                        footer
+                    }
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        if showsKeyboardAccessory {
+                            keyboardAccessoryBar
+                        }
+                    }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(AdminTheme.cream.ignoresSafeArea())
+            .toolbar(.hidden, for: .navigationBar)
+            .onChange(of: viewModel.selectedSlot) { _, _ in
+                dismissKeyboard()
+            }
+            .onChange(of: viewModel.selectedDate) { _, _ in
+                dismissKeyboard()
+            }
+            .onChange(of: viewModel.selectedDirectoryClient?.id) { _, _ in
+                dismissKeyboard()
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AdminTheme.cream.ignoresSafeArea())
         .preferredColorScheme(.light)
         .task {
             await viewModel.loadServicesIfNeeded()
@@ -126,33 +143,6 @@ struct ManualBookingWizardView: View {
         viewModel.step == .schedule
     }
 
-    private var stepProgressBar: some View {
-        GeometryReader { bar in
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(AdminTheme.stone200)
-                Capsule()
-                    .fill(AdminTheme.stone900)
-                    .frame(width: bar.size.width * stepProgressFraction)
-            }
-        }
-        .frame(height: 3)
-        .padding(.horizontal, Layout.contentPadding)
-        .padding(.bottom, 14)
-        .animation(.easeInOut(duration: 0.22), value: viewModel.step)
-    }
-
-    private var stepProgressFraction: CGFloat {
-        if viewModel.lockedClient != nil {
-            switch viewModel.step {
-            case .service: return 0.5
-            case .schedule: return 1.0
-            case .client: return 0.5
-            }
-        }
-        return CGFloat(viewModel.step.rawValue) / CGFloat(ManualBookingViewModel.Step.allCases.count)
-    }
-
     private var header: some View {
         HStack(alignment: .top, spacing: 14) {
             VStack(alignment: .leading, spacing: 5) {
@@ -173,7 +163,7 @@ struct ManualBookingWizardView: View {
                     .foregroundStyle(AdminTheme.stone600)
                     .lineLimit(2)
 
-                if let modeSwitch {
+                if let modeSwitch, viewModel.selectedService == nil {
                     modeSwitch
                         .padding(.top, 6)
                 }
@@ -182,7 +172,10 @@ struct ManualBookingWizardView: View {
             Spacer(minLength: 8)
 
             Button {
-                if !viewModel.isCompleting { onClose() }
+                if !viewModel.isCompleting {
+                    dismissKeyboard()
+                    onClose()
+                }
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 12, weight: .bold))
@@ -195,8 +188,8 @@ struct ManualBookingWizardView: View {
             .disabled(viewModel.isCompleting)
         }
         .padding(.horizontal, Layout.contentPadding)
-        .padding(.top, 8)
-        .padding(.bottom, 12)
+        .padding(.top, isScheduleStep ? 4 : 8)
+        .padding(.bottom, isScheduleStep ? 6 : 12)
     }
 
     @ViewBuilder
@@ -211,17 +204,15 @@ struct ManualBookingWizardView: View {
                     completingOverlay
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 12) {
-                            ManualBookingSlotPickerView(
-                                viewModel: viewModel,
-                                layout: .compact
-                            )
-                            bookingNotesField
-                        }
-                        .padding(.bottom, 8)
+                    VStack(alignment: .leading, spacing: 10) {
+                        ManualBookingSlotPickerView(
+                            viewModel: viewModel,
+                            layout: .compact
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        bookingNotesField
                     }
-                    .scrollDismissesKeyboard(.interactively)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
             }
             .padding(.horizontal, Layout.contentPadding)
@@ -257,7 +248,7 @@ struct ManualBookingWizardView: View {
     }
 
     private var bookingNotesField: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("Booking notes")
                     .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
@@ -273,20 +264,62 @@ struct ManualBookingWizardView: View {
                 text: $viewModel.bookingNotes,
                 axis: .vertical
             )
-            .lineLimit(3...6)
-            .font(AdminTheme.fontAdminSans(size: 15))
-            .padding(12)
+            .lineLimit(2...3)
+            .font(AdminTheme.fontAdminSans(size: 14))
+            .focused($notesFieldFocused)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .background(AdminTheme.cardFill)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(AdminTheme.stone200, lineWidth: 1)
             )
+            .layoutPriority(1)
         }
     }
 
-    private func dismissClientKeyboard() {
+    private var showsKeyboardAccessory: Bool {
+        notesFieldFocused || focusedClientField != nil
+    }
+
+    private var keyboardAccessoryBar: some View {
+        HStack(spacing: 12) {
+            if focusedClientField == .phone {
+                Button("Next") {
+                    viewModel.phoneTouched = true
+                    viewModel.formatPhoneField()
+                    focusedClientField = .email
+                }
+                .font(AdminTheme.fontAdminSans(size: 15, weight: .semibold))
+                .foregroundStyle(AdminTheme.stone900)
+            }
+            Spacer()
+            Button("Done") {
+                dismissKeyboard()
+            }
+            .font(AdminTheme.fontAdminSans(size: 15, weight: .semibold))
+            .foregroundStyle(AdminTheme.stone900)
+        }
+        .padding(.horizontal, Layout.contentPadding)
+        .padding(.vertical, 8)
+        .background(AdminTheme.cream)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(AdminTheme.stone200)
+                .frame(height: 0.5)
+        }
+    }
+
+    private func dismissKeyboard() {
         focusedClientField = nil
+        notesFieldFocused = false
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
     }
 
     private var footer: some View {
@@ -297,6 +330,7 @@ struct ManualBookingWizardView: View {
 
             HStack(spacing: 12) {
                 Button {
+                    dismissKeyboard()
                     viewModel.goBackOrCancel(onCancel: onClose)
                 } label: {
                     Text(viewModel.step == .service ? "Cancel" : "Back")
@@ -318,7 +352,7 @@ struct ManualBookingWizardView: View {
 
                 if viewModel.step != .schedule {
                     Button {
-                        dismissClientKeyboard()
+                        dismissKeyboard()
                         viewModel.advanceStep()
                     } label: {
                         Text("Continue")
@@ -335,6 +369,7 @@ struct ManualBookingWizardView: View {
                     .disabled(!canContinue || viewModel.isCompleting)
                 } else {
                     Button {
+                        dismissKeyboard()
                         Task { await viewModel.book(onSuccess: onSuccess) }
                     } label: {
                         HStack(spacing: 8) {
@@ -519,16 +554,6 @@ struct ManualBookingWizardView: View {
                             .foregroundStyle(active ? AdminTheme.stone300 : AdminTheme.stone500)
                             .textCase(.uppercase)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    if active, !service.description.isEmpty {
-                        Text(service.description)
-                            .font(AdminTheme.fontAdminSans(size: 13))
-                            .foregroundStyle(AdminTheme.stone300)
-                            .lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.top, 2)
                     }
                 }
             }

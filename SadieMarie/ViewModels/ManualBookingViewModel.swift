@@ -131,6 +131,10 @@ final class ManualBookingViewModel {
     }
 
     func selectDirectoryClient(_ client: Client) {
+        if selectedDirectoryClient?.id == client.id {
+            clearSelectedDirectoryClient()
+            return
+        }
         applyClient(client, lock: false)
         selectedDirectoryClient = client
         clientEntryMode = .existing

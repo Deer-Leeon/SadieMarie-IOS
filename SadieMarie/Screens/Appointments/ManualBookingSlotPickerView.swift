@@ -29,17 +29,7 @@ struct ManualBookingSlotPickerView: View {
 
     private var compactAvailabilityCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            clientSummary
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-                .padding(.bottom, 10)
-
-            Rectangle()
-                .fill(AdminTheme.stone200)
-                .frame(height: 0.5)
-                .padding(.horizontal, 12)
-
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 monthNavigation
 
                 calendarGrid
@@ -52,18 +42,21 @@ struct ManualBookingSlotPickerView: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
 
             Rectangle()
                 .fill(AdminTheme.stone200)
                 .frame(height: 0.5)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 10)
 
             timesSection
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(AdminTheme.cardFill)
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(
@@ -98,14 +91,10 @@ struct ManualBookingSlotPickerView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 4)
             } else if !viewModel.slotsForSelectedDay.isEmpty {
-                scrollableSlotsGrid(compact: true)
-                Text("Filled = selected · Green = hours · Amber = busy · Black = outside")
-                    .font(AdminTheme.fontAdminSans(size: 9, weight: .medium))
-                    .tracking(1.4)
-                    .foregroundStyle(AdminTheme.stone500)
-                    .textCase(.uppercase)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 2)
+                ScrollView(.vertical, showsIndicators: true) {
+                    compactSlotsGrid
+                        .padding(.bottom, 2)
+                }
             } else {
                 Text(viewModel.availableDates.isEmpty
                     ? "No open days this month — try another month."
@@ -124,9 +113,9 @@ struct ManualBookingSlotPickerView: View {
         let slotCount = viewModel.slotsForSelectedDay.count
         let columnsPerRow = compact ? 3 : 3
         let rowCount = max(1, (slotCount + columnsPerRow - 1) / columnsPerRow)
-        let rowHeight: CGFloat = compact ? 46 : 52
+        let rowHeight: CGFloat = compact ? 40 : 52
         let naturalHeight = CGFloat(rowCount) * rowHeight + CGFloat(max(0, rowCount - 1)) * 8
-        let maxVisibleHeight: CGFloat = compact ? 168 : 220
+        let maxVisibleHeight: CGFloat = compact ? 120 : 220
         let needsScroll = naturalHeight > maxVisibleHeight || slotCount > 9
 
         let grid = Group {
@@ -228,9 +217,10 @@ struct ManualBookingSlotPickerView: View {
     }
 
     private var calendarGrid: some View {
-        LazyVGrid(
-            columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7),
-            spacing: 4
+        let cellSpacing: CGFloat = isCompact ? 2 : 4
+        return LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(), spacing: cellSpacing), count: 7),
+            spacing: cellSpacing
         ) {
             ForEach(Array(weekdayLabels.enumerated()), id: \.offset) { _, day in
                 Text(day)
@@ -244,7 +234,7 @@ struct ManualBookingSlotPickerView: View {
                     dayButton(cell, compact: isCompact)
                 } else {
                     Color.clear
-                        .frame(height: isCompact ? 30 : 36)
+                        .frame(height: isCompact ? 26 : 36)
                 }
             }
         }
@@ -359,7 +349,7 @@ struct ManualBookingSlotPickerView: View {
         let isStudio = viewModel.isStudioDay(cell.date)
         let isSelectable = hasSlots && !isPast
         let isSelected = viewModel.selectedDate == cell.date && isSelectable
-        let size: CGFloat = compact ? 30 : 36
+        let size: CGFloat = compact ? 26 : 36
 
         return Button {
             viewModel.pickDate(cell.date)
