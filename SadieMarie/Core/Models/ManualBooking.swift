@@ -32,6 +32,42 @@ struct ManualBookingServiceOption: Identifiable, Hashable, Sendable {
     }
 }
 
+/// One uncommitted visit in the manual-booking review cart (same client, any mix of times).
+struct PendingManualVisit: Identifiable, Hashable, Sendable {
+    let id: UUID
+    var service: ManualBookingServiceOption
+    var slotIsoUtc: String
+    var notes: String?
+
+    init(
+        id: UUID = UUID(),
+        service: ManualBookingServiceOption,
+        slotIsoUtc: String,
+        notes: String? = nil
+    ) {
+        self.id = id
+        self.service = service
+        self.slotIsoUtc = slotIsoUtc
+        self.notes = notes
+    }
+
+    var dateLabel: String {
+        guard let ymd = StudioTime.yyyyMMdd(fromIsoUtc: slotIsoUtc) else { return "" }
+        return StudioTime.displayWeekdayMonthDay(isoDate: ymd)
+    }
+
+    var timeRangeLabel: String {
+        let start = StudioTime.formatSlotInStudioTime(isoUtc: slotIsoUtc)
+        if let endIso = StudioTime.bookingEndFromDuration(
+            startIso: slotIsoUtc,
+            durationMins: service.durationMins
+        ) {
+            return "\(start) – \(StudioTime.formatSlotInStudioTime(isoUtc: endIso))"
+        }
+        return start
+    }
+}
+
 /// Response from `GET /api/admin/manual-booking/services`.
 struct ManualBookingServicesMaps: Decodable, Sendable {
     let services: [ManualBookingCalService]

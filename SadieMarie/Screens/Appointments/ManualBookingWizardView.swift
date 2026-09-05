@@ -92,10 +92,10 @@ struct ManualBookingWizardView: View {
             }
 
             VStack(spacing: 8) {
-                Text("Appointment booked")
+                Text(successTitle)
                     .font(AdminTheme.fontAdminSerif(size: 28))
                     .foregroundStyle(AdminTheme.stone900)
-                Text("The appointment is in Cal.com and the studio calendar.")
+                Text(successSubtitle)
                     .font(AdminTheme.fontAdminSans(size: 14))
                     .foregroundStyle(AdminTheme.stone700)
                     .multilineTextAlignment(.center)
@@ -163,7 +163,7 @@ struct ManualBookingWizardView: View {
                     .foregroundStyle(AdminTheme.stone600)
                     .lineLimit(2)
 
-                if let modeSwitch, viewModel.selectedService == nil {
+                if let modeSwitch, viewModel.showsModeSwitch {
                     modeSwitch
                         .padding(.top, 6)
                 }
@@ -194,26 +194,25 @@ struct ManualBookingWizardView: View {
 
     @ViewBuilder
     private var bodyContent: some View {
-        if isScheduleStep {
+        if viewModel.isCompleting {
+            completingOverlay
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, Layout.contentPadding)
+        } else if isScheduleStep {
             VStack(alignment: .leading, spacing: 10) {
                 if let error = viewModel.errorMessage {
                     errorBanner(error)
                 }
 
-                if viewModel.isCompleting {
-                    completingOverlay
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ManualBookingSlotPickerView(
-                            viewModel: viewModel,
-                            layout: .compact
-                        )
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        bookingNotesField
-                    }
+                VStack(alignment: .leading, spacing: 10) {
+                    ManualBookingSlotPickerView(
+                        viewModel: viewModel,
+                        layout: .compact
+                    )
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    bookingNotesField
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
             .padding(.horizontal, Layout.contentPadding)
             .padding(.top, 4)
@@ -236,6 +235,8 @@ struct ManualBookingWizardView: View {
                         )
                     case .schedule:
                         EmptyView()
+                    case .summary:
+                        summaryStep
                     }
                 }
                 .padding(.horizontal, Layout.contentPadding)
@@ -329,28 +330,54 @@ struct ManualBookingWizardView: View {
                 .frame(height: 0.5)
 
             HStack(spacing: 12) {
-                Button {
-                    dismissKeyboard()
-                    viewModel.goBackOrCancel(onCancel: onClose)
-                } label: {
-                    Text(viewModel.step == .service ? "Cancel" : "Back")
-                        .font(AdminTheme.fontAdminSans(size: 12, weight: .semibold))
-                        .tracking(1.2)
-                        .foregroundStyle(AdminTheme.stone700)
-                        .textCase(.uppercase)
+                if showsFooterBack {
+                    Button {
+                        dismissKeyboard()
+                        viewModel.goBackOrCancel(onCancel: onClose)
+                    } label: {
+                        Text(footerBackTitle)
+                            .font(AdminTheme.fontAdminSans(size: 12, weight: .semibold))
+                            .tracking(1.2)
+                            .foregroundStyle(AdminTheme.stone700)
+                            .textCase(.uppercase)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(AdminTheme.cardFill)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(AdminTheme.stone200, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(viewModel.isCompleting)
+                }
+
+                if viewModel.step == .summary {
+                    Button {
+                        dismissKeyboard()
+                        Task { await viewModel.book(onSuccess: onSuccess) }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if viewModel.isCompleting {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .tint(AdminTheme.cream)
+                            }
+                            Text(viewModel.bookButtonTitle)
+                                .font(AdminTheme.fontAdminSans(size: 12, weight: .semibold))
+                                .tracking(1.2)
+                                .textCase(.uppercase)
+                        }
+                        .foregroundStyle(viewModel.canBook ? AdminTheme.cream : AdminTheme.stone500)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
-                        .background(AdminTheme.cardFill)
+                        .background(viewModel.canBook ? AdminTheme.stone900 : AdminTheme.stone200)
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(AdminTheme.stone200, lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-                .disabled(viewModel.isCompleting)
-
-                if viewModel.step != .schedule {
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!viewModel.canBook)
+                } else {
                     Button {
                         dismissKeyboard()
                         viewModel.advanceStep()
@@ -367,30 +394,6 @@ struct ManualBookingWizardView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(!canContinue || viewModel.isCompleting)
-                } else {
-                    Button {
-                        dismissKeyboard()
-                        Task { await viewModel.book(onSuccess: onSuccess) }
-                    } label: {
-                        HStack(spacing: 8) {
-                            if viewModel.isCompleting {
-                                ProgressView()
-                                    .controlSize(.small)
-                                    .tint(AdminTheme.cream)
-                            }
-                            Text(viewModel.isCompleting ? "Booking…" : "Book appointment")
-                                .font(AdminTheme.fontAdminSans(size: 12, weight: .semibold))
-                                .tracking(1.2)
-                                .textCase(.uppercase)
-                        }
-                        .foregroundStyle(viewModel.canBook ? AdminTheme.cream : AdminTheme.stone500)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(viewModel.canBook ? AdminTheme.stone900 : AdminTheme.stone200)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!viewModel.canBook)
                 }
             }
             .padding(.horizontal, Layout.contentPadding)
@@ -407,8 +410,125 @@ struct ManualBookingWizardView: View {
         case .client:
             return viewModel.canAdvanceFromClient
         case .schedule:
+            return viewModel.canContinueFromSchedule
+        case .summary:
             return false
         }
+    }
+
+    private var showsFooterBack: Bool {
+        !(viewModel.step == .summary && viewModel.pendingVisits.count > 1)
+    }
+
+    private var footerBackTitle: String {
+        if viewModel.step == .service, viewModel.pendingVisits.isEmpty {
+            return "Cancel"
+        }
+        return "Back"
+    }
+
+    private var successTitle: String {
+        viewModel.lastBookedCount > 1
+            ? "\(viewModel.lastBookedCount) appointments booked"
+            : "Appointment booked"
+    }
+
+    private var successSubtitle: String {
+        viewModel.lastBookedCount > 1
+            ? "The appointments are in Cal.com and the studio calendar."
+            : "The appointment is in Cal.com and the studio calendar."
+    }
+
+    private var summaryStep: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if !viewModel.clientDisplayName.isEmpty {
+                Text("Visits for \(viewModel.clientDisplayName)")
+                    .font(AdminTheme.fontAdminSans(size: 13))
+                    .foregroundStyle(AdminTheme.stone600)
+            }
+
+            VStack(spacing: 10) {
+                ForEach(viewModel.pendingVisits) { visit in
+                    summaryVisitRow(visit)
+                }
+            }
+
+            Button {
+                viewModel.beginAddVisit()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("Add")
+                        .font(AdminTheme.fontAdminSans(size: 12, weight: .semibold))
+                        .tracking(1.2)
+                        .textCase(.uppercase)
+                }
+                .foregroundStyle(AdminTheme.stone700)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(AdminTheme.cardFill)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(AdminTheme.stone200, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(viewModel.isCompleting)
+        }
+    }
+
+    private func summaryVisitRow(_ visit: PendingManualVisit) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Button {
+                viewModel.beginEditVisit(visit)
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(visit.service.title)
+                        .font(AdminTheme.fontAdminSerif(size: 17))
+                        .foregroundStyle(AdminTheme.stone900)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Text("\(visit.dateLabel) · \(visit.timeRangeLabel)")
+                        .font(AdminTheme.fontAdminSans(size: 13))
+                        .foregroundStyle(AdminTheme.stone600)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if let notes = visit.notes, !notes.isEmpty {
+                        Text(notes)
+                            .font(AdminTheme.fontAdminSans(size: 13))
+                            .foregroundStyle(AdminTheme.stone500)
+                            .lineLimit(2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                viewModel.removeVisit(visit.id)
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AdminTheme.stone500)
+                    .frame(width: 36, height: 36)
+                    .background(AdminTheme.stone100)
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove visit")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(AdminTheme.cardFill)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(AdminTheme.stone200, lineWidth: 1)
+        )
     }
 
     private var serviceStep: some View {
@@ -607,9 +727,15 @@ struct ManualBookingWizardView: View {
         VStack(spacing: 10) {
             ProgressView()
                 .controlSize(.large)
-            Text("Saving appointment…")
-                .font(AdminTheme.fontAdminSerif(size: 18))
-                .foregroundStyle(AdminTheme.stone900)
+            if let progress = viewModel.bookingProgress, progress.total > 1 {
+                Text("Booking \(progress.current) of \(progress.total)…")
+                    .font(AdminTheme.fontAdminSerif(size: 18))
+                    .foregroundStyle(AdminTheme.stone900)
+            } else {
+                Text("Saving appointment…")
+                    .font(AdminTheme.fontAdminSerif(size: 18))
+                    .foregroundStyle(AdminTheme.stone900)
+            }
             Text("Updating Cal.com and your calendar")
                 .font(AdminTheme.fontAdminSans(size: 13))
                 .foregroundStyle(AdminTheme.stone500)

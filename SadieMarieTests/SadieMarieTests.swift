@@ -499,6 +499,79 @@ final class SadieMarieTests: XCTestCase {
         XCTAssertEqual(grid.map(\.id), ["ok"])
     }
 
+    func testVisibleAppointmentsExcludesAttachedExtras() {
+        let parent = Appointment(
+            id: "parent",
+            bookingTime: "2026-05-25T16:00:00.000Z",
+            serviceName: "Lashes",
+            status: AppointmentStatus.confirmed.rawValue,
+            extraCount: 1
+        )
+        let extra = Appointment(
+            id: "extra",
+            bookingTime: "2026-05-25T16:00:00.000Z",
+            serviceName: "Brow wax",
+            status: AppointmentStatus.confirmed.rawValue,
+            attachedToAppointmentId: "parent"
+        )
+        XCTAssertEqual([parent, extra].visibleAppointments.map(\.id), ["parent"])
+        XCTAssertEqual([parent, extra].calendarAppointments.map(\.id), ["parent"])
+        XCTAssertEqual([parent, extra].visibleForBookingsList().map(\.id), ["parent"])
+    }
+
+    func testAppointmentDecodesNestedExtrasAndChargePlan() throws {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let json = """
+        {
+          "id": "parent",
+          "status": "confirmed",
+          "service_name": "Hybrid Full Set",
+          "service_price": 185,
+          "extra_count": 1,
+          "extras": [
+            {
+              "id": "extra",
+              "status": "confirmed",
+              "service_name": "Brow wax",
+              "service_price": 20,
+              "attached_to_appointment_id": "parent"
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+        let appointment = try decoder.decode(Appointment.self, from: json)
+        XCTAssertEqual(appointment.extraCount, 1)
+        XCTAssertEqual(appointment.extras.map(\.id), ["extra"])
+        XCTAssertTrue(appointment.extras[0].isAttachedExtra)
+        XCTAssertEqual(AppointmentChargePlan.chargeTargetId(for: appointment), "parent")
+        XCTAssertEqual(AppointmentChargePlan.forcedAdditionalIds(for: appointment), ["extra"])
+        XCTAssertEqual(AppointmentChargePlan.lines(for: appointment).map(\.id), ["parent", "extra"])
+
+        let paidParent = appointment.withTerminalPayment(
+            AppointmentPaymentSummary(
+                id: "pay-1",
+                appointmentId: "parent",
+                paymentKind: .cash,
+                paymentIntentId: nil,
+                readerId: nil,
+                status: .succeeded,
+                currency: "usd",
+                baseAmountCents: 18500,
+                tipAmountCents: 0,
+                totalAmountCents: 18500,
+                failureCode: nil,
+                failureMessage: nil,
+                note: nil,
+                settledByEmail: nil,
+                paidAt: nil
+            )
+        )
+        XCTAssertEqual(AppointmentChargePlan.chargeTargetId(for: paidParent), "extra")
+        XCTAssertEqual(AppointmentChargePlan.forcedAdditionalIds(for: paidParent), [])
+        XCTAssertEqual(AppointmentChargePlan.lines(for: paidParent).map(\.id), ["extra"])
+    }
+
     func testTimelinePositionClipsToNineToNineWindow() {
         let calendar = StudioTime.calendar
         var components = DateComponents()
@@ -1017,8 +1090,88 @@ final class SadieMarieTests: XCTestCase {
         XCTAssertEqual(viewModel.clientLastName, "Doe")
         XCTAssertNil(viewModel.selectedDate)
         XCTAssertNil(viewModel.selectedSlot)
+        XCTAssertTrue(viewModel.pendingVisits.isEmpty)
         XCTAssertEqual(viewModel.step, .service)
     }
+
+    @MainActor
+    func testCommitScheduleAppendsVisitAndOpensSummary() {
+        let viewModel = ManualBookingViewModel(
+            initialDate: Date(),
+            prefilledClient: Client(
+                id: "client-1",
+                firstName: "Jane",
+                lastName: "Doe",
+                email: "jane@example.com",
+                phone: "18015551234"
+            )
+        )
+        viewModel.selectedService = Self.sampleManualService
+        viewModel.selectedSlot = "2026-08-10T18:00:00.000Z"
+        viewModel.bookingNotes = "Allergic to latex"
+
+        XCTAssertTrue(viewModel.commitScheduleToCart())
+        XCTAssertEqual(viewModel.step, .summary)
+        XCTAssertEqual(viewModel.pendingVisits.count, 1)
+        XCTAssertEqual(viewModel.pendingVisits[0].service.slug, "classic-set")
+        XCTAssertEqual(viewModel.pendingVisits[0].slotIsoUtc, "2026-08-10T18:00:00.000Z")
+        XCTAssertEqual(viewModel.pendingVisits[0].notes, "Allergic to latex")
+        XCTAssertNil(viewModel.selectedService)
+        XCTAssertNil(viewModel.selectedSlot)
+        XCTAssertTrue(viewModel.bookingNotes.isEmpty)
+    }
+
+    @MainActor
+    func testAddEditRemoveCartAndOccupiedSlots() {
+        let viewModel = ManualBookingViewModel(
+            initialDate: Date(),
+            prefilledClient: Client(
+                id: "client-1",
+                firstName: "Jane",
+                lastName: "Doe",
+                email: "jane@example.com",
+                phone: "18015551234"
+            )
+        )
+        let firstSlot = "2026-08-10T18:00:00.000Z"
+        let secondSlot = "2026-08-11T18:00:00.000Z"
+        viewModel.selectedService = Self.sampleManualService
+        viewModel.selectedSlot = firstSlot
+        XCTAssertTrue(viewModel.commitScheduleToCart())
+
+        viewModel.beginAddVisit()
+        XCTAssertEqual(viewModel.step, .service)
+        XCTAssertTrue(viewModel.slotIsOccupied(firstSlot))
+        XCTAssertFalse(viewModel.slotIsOccupied(secondSlot))
+
+        viewModel.selectedService = Self.sampleManualService
+        viewModel.selectedSlot = secondSlot
+        XCTAssertTrue(viewModel.commitScheduleToCart())
+        XCTAssertEqual(viewModel.pendingVisits.count, 2)
+
+        let first = viewModel.pendingVisits[0]
+        viewModel.beginEditVisit(first)
+        XCTAssertEqual(viewModel.editingVisitId, first.id)
+        XCTAssertEqual(viewModel.step, .service)
+        XCTAssertFalse(viewModel.slotIsOccupied(firstSlot))
+        XCTAssertTrue(viewModel.slotIsOccupied(secondSlot))
+
+        viewModel.removeVisit(viewModel.pendingVisits[1].id)
+        XCTAssertEqual(viewModel.pendingVisits.count, 1)
+        viewModel.removeVisit(viewModel.pendingVisits[0].id)
+        XCTAssertTrue(viewModel.pendingVisits.isEmpty)
+        XCTAssertEqual(viewModel.step, .service)
+    }
+
+    private static let sampleManualService = ManualBookingServiceOption(
+        slug: "classic-set",
+        title: "Classic Set",
+        description: "",
+        category: "Lash Sets",
+        price: 155,
+        eventTypeId: 42,
+        durationMins: 150
+    )
 
     func testAdminPushPayloadParsesAppointmentId() {
         XCTAssertEqual(
@@ -1077,6 +1230,34 @@ final class SadieMarieTests: XCTestCase {
         XCTAssertTrue(AdminAPIError.forbidden.isNonRetryableAuthFailure)
         XCTAssertFalse(AdminAPIError.unauthorized.isNonRetryableAuthFailure)
         XCTAssertFalse(AdminAPIError.noActiveSession.isNonRetryableAuthFailure)
+    }
+
+    func testTransientAuthFailureDetectsClerkSettlingErrors() {
+        XCTAssertTrue(AdminAPIError.isTransientAuthFailure(AdminAPIError.unauthorized))
+        XCTAssertTrue(AdminAPIError.isTransientAuthFailure(AdminAPIError.noActiveSession))
+        XCTAssertFalse(AdminAPIError.isTransientAuthFailure(AdminAPIError.forbidden))
+        XCTAssertTrue(
+            AdminAPIError.isTransientAuthFailure(
+                AdminAPIError.unknown(
+                    NSError(
+                        domain: "ClerkAPIError",
+                        code: 0,
+                        userInfo: [NSLocalizedDescriptionKey: "Unable to authenticate"]
+                    )
+                )
+            )
+        )
+        let clerkStyle = NSError(
+            domain: "Clerk",
+            code: 401,
+            userInfo: [NSLocalizedDescriptionKey: "Invalid authentication"]
+        )
+        XCTAssertTrue(AdminAPIError.isTransientAuthFailure(clerkStyle))
+        XCTAssertFalse(
+            AdminAPIError.isTransientAuthFailure(
+                AdminAPIError.transport(URLError(.timedOut))
+            )
+        )
     }
 
     func testCurrentRangeStartForThreeDayIsToday() {

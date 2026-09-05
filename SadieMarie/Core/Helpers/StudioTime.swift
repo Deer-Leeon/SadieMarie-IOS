@@ -28,6 +28,12 @@ enum StudioTime {
         return String(format: "%04d-%02d-%02d", year, month, day)
     }
 
+    /// Studio-local `YYYY-MM-DD` for a UTC slot ISO string.
+    static func yyyyMMdd(fromIsoUtc isoUtc: String) -> String? {
+        guard let date = parseISO8601(isoUtc) else { return nil }
+        return yyyyMMdd(from: date)
+    }
+
     static func startOfStudioDay(for date: Date) -> Date {
         calendar.startOfDay(for: date)
     }

@@ -1,9 +1,9 @@
 import Foundation
 import Observation
 
-/// Central state for the 3-step manual booking wizard (mirrors web `ManualBookingModal`).
+/// Central state for the multi-visit manual booking wizard (mirrors web `ManualBookingModal`).
 ///
-/// Flow: service pick → client form → Cal slots → `create` + `complete` admin API calls.
+/// Flow: service → client → date/time → review cart → `create` + `complete` per visit.
 /// Shadow Cal event-type routing stays on the server; iOS only sends the real `eventTypeId`.
 @MainActor
 @Observable
@@ -13,6 +13,7 @@ final class ManualBookingViewModel {
         case service = 1
         case client = 2
         case schedule = 3
+        case summary = 4
     }
 
     // MARK: - Wizard state
@@ -28,9 +29,13 @@ final class ManualBookingViewModel {
     var emailTouched = false
     var bookingNotes = ""
 
+    private(set) var pendingVisits: [PendingManualVisit] = []
+    private(set) var editingVisitId: UUID?
     private(set) var isLoadingServices = false
     private(set) var isCompleting = false
     private(set) var didCompleteBooking = false
+    private(set) var lastBookedCount = 0
+    private(set) var bookingProgress: (current: Int, total: Int)?
     private(set) var errorMessage: String?
 
     // MARK: - Slot picker state
@@ -51,6 +56,8 @@ final class ManualBookingViewModel {
     private let initialDateISO: String?
     private let seedHour: Int?
     private var seededSlotApplied = false
+    /// When entering the slot picker to edit a cart row, keep this start selected after month load.
+    private var restoreSlotIsoUtc: String?
     private let studioToday: String
     private var mayAdvanceFromEmptyStartMonth = true
     private var slotsLoadGeneration = 0
@@ -80,6 +87,8 @@ final class ManualBookingViewModel {
 
     /// When set, client fields are locked to this CRM client (book-from-profile).
     private(set) var lockedClient: Client?
+    /// After the first visit is assembled, later visits (and an emptied cart) keep this person.
+    private(set) var sessionClientLocked = false
     private(set) var directoryClients: [Client] = []
     private(set) var selectedDirectoryClient: Client?
     private(set) var isLoadingDirectoryClients = false
@@ -227,38 +236,100 @@ final class ManualBookingViewModel {
             && ClientEmail.isValidOptional(clientEmail)
     }
 
-    var canBook: Bool {
+    /// Client step is skipped when booking from a profile or when the cart already has a person.
+    var isClientStepSkipped: Bool {
+        lockedClient != nil || sessionClientLocked || !pendingVisits.isEmpty
+    }
+
+    var canContinueFromSchedule: Bool {
         selectedSlot != nil && !isCompleting && canAdvanceFromClient
     }
 
+    var canBook: Bool {
+        !pendingVisits.isEmpty && !isCompleting && canAdvanceFromClient
+    }
+
+    var bookButtonTitle: String {
+        if isCompleting {
+            if let bookingProgress {
+                return "Booking \(bookingProgress.current) of \(bookingProgress.total)…"
+            }
+            return "Booking…"
+        }
+        let count = pendingVisits.count
+        if count <= 1 {
+            return "Book appointment"
+        }
+        return "Book \(count) appointments"
+    }
+
+    var showsModeSwitch: Bool {
+        selectedService == nil && step != .summary && !isClientStepSkipped
+    }
+
     var headerTitle: String {
+        if step == .summary {
+            return clientDisplayName.isEmpty ? "Review visits" : clientDisplayName
+        }
         if (step == .schedule || step == .client), let selectedService {
             return selectedService.title
         }
-        if lockedClient != nil {
+        if isClientStepSkipped {
             return clientDisplayName.isEmpty ? "Book appointment" : clientDisplayName
         }
         return "New appointment"
     }
 
     var headerSubtitle: String {
-        if lockedClient != nil {
+        if step == .summary {
+            let count = pendingVisits.count
+            if count == 1 {
+                return "Review 1 visit · then book or add another"
+            }
+            return "Review \(count) visits · then book or add another"
+        }
+        if editingVisitId != nil {
             switch step {
             case .service:
-                return "Choose a service for \(clientDisplayName) · Step 1 of 2"
+                return "Change service · Edit visit"
             case .schedule:
-                return "Pick an open date & time · Step 2 of 2"
+                return "Change date & time · Edit visit"
+            case .client, .summary:
+                return "Edit visit"
+            }
+        }
+        if !pendingVisits.isEmpty {
+            let forClient = clientDisplayName.isEmpty ? "Add visit" : "Add visit for \(clientDisplayName)"
+            switch step {
+            case .service:
+                return "Choose a service · \(forClient)"
+            case .schedule:
+                return "Pick an open date & time · Add visit"
+            case .client, .summary:
+                return forClient
+            }
+        }
+        if lockedClient != nil || sessionClientLocked {
+            switch step {
+            case .service:
+                return "Choose a service for \(clientDisplayName) · Step 1 of 3"
+            case .schedule:
+                return "Pick an open date & time · Step 2 of 3"
+            case .summary:
+                return "Review visits · Step 3 of 3"
             case .client:
                 return "Client details"
             }
         }
         switch step {
         case .service:
-            return "Choose a service · Step 1 of 3"
+            return "Choose a service · Step 1 of 4"
         case .client:
-            return "Client details · Step 2 of 3"
+            return "Client details · Step 2 of 4"
         case .schedule:
-            return "Pick an open date & time · Step 3 of 3"
+            return "Pick an open date & time · Step 3 of 4"
+        case .summary:
+            return "Review visits · Step 4 of 4"
         }
     }
 
@@ -309,7 +380,13 @@ final class ManualBookingViewModel {
         guard let ms = ManualBookingSlotsParser.epochMs(isoUtc: slotIsoUtc) else {
             return false
         }
-        return occupiedStartMs.contains(ms)
+        if occupiedStartMs.contains(ms) {
+            return true
+        }
+        return pendingVisits.contains { visit in
+            if visit.id == editingVisitId { return false }
+            return ManualBookingSlotsParser.epochMs(isoUtc: visit.slotIsoUtc) == ms
+        }
     }
 
     func isStudioDay(_ ymd: String) -> Bool {
@@ -369,15 +446,30 @@ final class ManualBookingViewModel {
     func goBackOrCancel(onCancel: () -> Void) {
         guard !isCompleting else { return }
         errorMessage = nil
-        if step == .service {
+
+        switch step {
+        case .service:
+            if !pendingVisits.isEmpty {
+                discardDraft()
+                step = .summary
+                return
+            }
             onCancel()
-        } else if lockedClient != nil, step == .schedule {
+        case .client:
             step = .service
             selectedSlot = nil
-        } else {
-            step = Step(rawValue: step.rawValue - 1) ?? .service
-            if step != .schedule {
+        case .schedule:
+            if isClientStepSkipped {
+                step = .service
+            } else {
+                step = .client
+            }
+            if editingVisitId == nil {
                 selectedSlot = nil
+            }
+        case .summary:
+            if pendingVisits.count == 1, let visit = pendingVisits.first {
+                beginEditVisit(visit, jumpToSchedule: true)
             }
         }
     }
@@ -386,15 +478,18 @@ final class ManualBookingViewModel {
         guard !isCompleting else { return }
         errorMessage = nil
 
-        if step == .service, lockedClient != nil {
+        if step == .schedule {
+            _ = commitScheduleToCart()
+            return
+        }
+
+        if step == .service, isClientStepSkipped {
             guard canAdvanceFromService else { return }
             guard canAdvanceFromClient else {
                 errorMessage = "This client needs a first name, last name, and phone before booking."
                 return
             }
-            step = .schedule
-            selectedSlot = nil
-            Task { await loadMonth(year: viewYear, month: viewMonth) }
+            enterSchedule(preserveDraftSlot: editingVisitId != nil)
             return
         }
 
@@ -405,12 +500,97 @@ final class ManualBookingViewModel {
             guard canAdvanceFromClient else { return }
         }
 
-        guard let next = Step(rawValue: step.rawValue + 1) else { return }
+        guard let next = Step(rawValue: step.rawValue + 1), next != .summary else { return }
         step = next
         if step == .schedule {
-            selectedSlot = nil
-            Task { await loadMonth(year: viewYear, month: viewMonth) }
+            enterSchedule(preserveDraftSlot: false)
         }
+    }
+
+    @discardableResult
+    func commitScheduleToCart() -> Bool {
+        guard let service = selectedService, let slot = selectedSlot, canAdvanceFromClient else {
+            return false
+        }
+        let notes = Self.notesForApi(bookingNotes)
+        if let editingVisitId, let index = pendingVisits.firstIndex(where: { $0.id == editingVisitId }) {
+            pendingVisits[index] = PendingManualVisit(
+                id: editingVisitId,
+                service: service,
+                slotIsoUtc: slot,
+                notes: notes
+            )
+        } else {
+            pendingVisits.append(
+                PendingManualVisit(service: service, slotIsoUtc: slot, notes: notes)
+            )
+        }
+        discardDraft()
+        sessionClientLocked = true
+        step = .summary
+        return true
+    }
+
+    func beginAddVisit() {
+        guard !isCompleting, !pendingVisits.isEmpty else { return }
+        errorMessage = nil
+        discardDraft()
+        step = .service
+    }
+
+    func beginEditVisit(_ visit: PendingManualVisit, jumpToSchedule: Bool = false) {
+        guard !isCompleting else { return }
+        errorMessage = nil
+        editingVisitId = visit.id
+        selectedService = visit.service
+        bookingNotes = visit.notes ?? ""
+        selectedSlot = visit.slotIsoUtc
+        if let ymd = StudioTime.yyyyMMdd(fromIsoUtc: visit.slotIsoUtc) {
+            selectedDate = ymd
+        }
+        if jumpToSchedule {
+            enterSchedule(preserveDraftSlot: true)
+        } else {
+            step = .service
+        }
+    }
+
+    func removeVisit(_ id: UUID) {
+        guard !isCompleting else { return }
+        errorMessage = nil
+        pendingVisits.removeAll { $0.id == id }
+        if editingVisitId == id {
+            discardDraft()
+        }
+        if pendingVisits.isEmpty {
+            discardDraft()
+            step = .service
+        }
+    }
+
+    private func discardDraft() {
+        editingVisitId = nil
+        selectedService = nil
+        selectedSlot = nil
+        bookingNotes = ""
+        restoreSlotIsoUtc = nil
+    }
+
+    private func enterSchedule(preserveDraftSlot: Bool) {
+        step = .schedule
+        if preserveDraftSlot, let selectedSlot {
+            restoreSlotIsoUtc = selectedSlot
+            if let ymd = StudioTime.yyyyMMdd(fromIsoUtc: selectedSlot),
+               let date = StudioTime.date(fromYYYYMMDD: ymd) {
+                let parts = StudioTime.calendar.dateComponents([.year, .month], from: date)
+                if let year = parts.year { viewYear = year }
+                if let month = parts.month { viewMonth = month }
+            }
+        } else {
+            selectedSlot = nil
+            restoreSlotIsoUtc = nil
+        }
+        Task { await loadMonth(year: viewYear, month: viewMonth) }
     }
 
     func selectService(_ service: ManualBookingServiceOption) {
@@ -484,12 +664,17 @@ final class ManualBookingViewModel {
         monthError = nil
         errorMessage = nil
         didCompleteBooking = false
+        lastBookedCount = 0
+        bookingProgress = nil
         phoneTouched = false
         emailTouched = false
         bookingNotes = ""
+        pendingVisits = []
+        editingVisitId = nil
+        restoreSlotIsoUtc = nil
         step = .service
 
-        if lockedClient == nil {
+        if lockedClient == nil && !sessionClientLocked {
             selectedDirectoryClient = nil
             clientFirstName = ""
             clientLastName = ""
@@ -501,7 +686,7 @@ final class ManualBookingViewModel {
     }
 
     func book(onSuccess: @escaping () -> Void) async {
-        guard let service = selectedService, let slot = selectedSlot else { return }
+        guard canBook else { return }
 
         let trimmedFirst = clientFirstName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedLast = clientLastName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -520,30 +705,77 @@ final class ManualBookingViewModel {
 
         isCompleting = true
         errorMessage = nil
-        defer { isCompleting = false }
-
-        do {
-            try await ManualBookingExecution.submit(
-                service: service,
-                slotIsoUtc: slot,
-                clientFirstName: trimmedFirst,
-                clientLastName: trimmedLast,
-                clientEmail: optionalEmail,
-                clientPhoneDigits: parsedPhone.digits,
-                bookingNotes: Self.notesForApi(bookingNotes)
-            )
-            didCompleteBooking = true
-            onSuccess()
-        } catch let error as ManualBookingExecutionError {
-            errorMessage = error.localizedDescription
-        } catch let error as ClientEmailValidationError {
-            emailTouched = true
-            errorMessage = error.localizedDescription
-        } catch let error as AdminAPIError {
-            errorMessage = manualBookingMessage(for: error)
-        } catch {
-            errorMessage = "Booking failed: \(error.localizedDescription)"
+        bookingProgress = nil
+        defer {
+            isCompleting = false
+            bookingProgress = nil
         }
+
+        let total = pendingVisits.count
+        var remaining = pendingVisits
+        var bookedCount = 0
+
+        for visit in pendingVisits {
+            bookingProgress = (current: bookedCount + 1, total: total)
+            do {
+                try await ManualBookingExecution.submit(
+                    service: visit.service,
+                    slotIsoUtc: visit.slotIsoUtc,
+                    clientFirstName: trimmedFirst,
+                    clientLastName: trimmedLast,
+                    clientEmail: optionalEmail,
+                    clientPhoneDigits: parsedPhone.digits,
+                    bookingNotes: visit.notes
+                )
+                remaining.removeAll { $0.id == visit.id }
+                bookedCount += 1
+            } catch let error as ManualBookingExecutionError {
+                pendingVisits = remaining
+                errorMessage = partialFailureMessage(
+                    bookedCount: bookedCount,
+                    total: total,
+                    detail: error.localizedDescription
+                )
+                if bookedCount > 0 { onSuccess() }
+                return
+            } catch let error as ClientEmailValidationError {
+                emailTouched = true
+                pendingVisits = remaining
+                errorMessage = error.localizedDescription
+                if bookedCount > 0 { onSuccess() }
+                return
+            } catch let error as AdminAPIError {
+                pendingVisits = remaining
+                errorMessage = partialFailureMessage(
+                    bookedCount: bookedCount,
+                    total: total,
+                    detail: manualBookingMessage(for: error)
+                )
+                if bookedCount > 0 { onSuccess() }
+                return
+            } catch {
+                pendingVisits = remaining
+                errorMessage = partialFailureMessage(
+                    bookedCount: bookedCount,
+                    total: total,
+                    detail: error.localizedDescription
+                )
+                if bookedCount > 0 { onSuccess() }
+                return
+            }
+        }
+
+        pendingVisits = []
+        lastBookedCount = bookedCount
+        didCompleteBooking = true
+        onSuccess()
+    }
+
+    private func partialFailureMessage(bookedCount: Int, total: Int, detail: String) -> String {
+        if bookedCount == 0 {
+            return "Booking failed: \(detail)"
+        }
+        return "Booked \(bookedCount) of \(total). Visit \(bookedCount + 1) failed: \(detail)"
     }
 
     private static func notesForApi(_ raw: String) -> String? {
@@ -580,8 +812,10 @@ final class ManualBookingViewModel {
 
         monthLoading = true
         monthError = nil
-        selectedDate = nil
-        selectedSlot = nil
+        if restoreSlotIsoUtc == nil {
+            selectedDate = nil
+            selectedSlot = nil
+        }
 
         defer {
             if generation == slotsLoadGeneration {
@@ -650,6 +884,15 @@ final class ManualBookingViewModel {
         scheduleAvailability = entry.scheduleAvailability
         scheduleOverrides = entry.scheduleOverrides
         monthError = entry.error
+
+        if let restore = restoreSlotIsoUtc {
+            restoreSlotIsoUtc = nil
+            if let ymd = StudioTime.yyyyMMdd(fromIsoUtc: restore) {
+                selectedDate = ymd
+            }
+            selectedSlot = restore
+            return
+        }
 
         let keepSeededSlot = seededSlotApplied && selectedDate == initialDateISO
         if !keepSeededSlot {
