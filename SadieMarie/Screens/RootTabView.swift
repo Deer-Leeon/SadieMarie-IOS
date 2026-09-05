@@ -102,6 +102,7 @@ struct RootTabView: View {
         }
         .task(id: clerk.session?.id) {
             guard clerk.session != nil else { return }
+            await SessionKeepAlive.waitUntilReadyForAPI()
             await prefetchTabs()
         }
     }

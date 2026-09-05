@@ -9,6 +9,9 @@ import ClerkKit
 enum SessionKeepAlive {
     static let refreshTaskId = "co.sadiemarie.admin.session-refresh"
 
+    @MainActor
+    private static var inFlight: Task<Void, Never>?
+
     /// Register Apple's background-refresh slot. Call once at launch.
     static func registerBackgroundTask() {
         BGTaskScheduler.shared.register(
@@ -32,8 +35,33 @@ enum SessionKeepAlive {
     /// Touch the Clerk session (resets inactivity), refresh the JWT, and
     /// upsert the APNs token. Safe to call from launch, foreground, and
     /// background fetch. Never signs the user out on a network blip.
+    /// Concurrent callers share one in-flight run so sign-in doesn't race
+    /// `setActive` against the first calendar fetch.
     @MainActor
     static func run() async {
+        if let inFlight {
+            await inFlight.value
+            return
+        }
+        let task = Task { @MainActor in
+            await performRun()
+        }
+        inFlight = task
+        await task.value
+        if inFlight == task {
+            inFlight = nil
+        }
+    }
+
+    /// Finish session touch + JWT before the first admin API calls after login.
+    @MainActor
+    static func waitUntilReadyForAPI() async {
+        await run()
+        _ = try? await AdminAPIClient.clerkSessionToken()
+    }
+
+    @MainActor
+    private static func performRun() async {
         UIApplication.shared.registerForRemoteNotifications()
 
         guard let session = Clerk.shared.session else { return }

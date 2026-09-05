@@ -15,6 +15,9 @@ final class WebsiteViewModel {
     private let inFlightLoad = InFlightLoad()
 
     func load(showLoading: Bool = true) async {
+        if !hasLoaded {
+            await SessionKeepAlive.waitUntilReadyForAPI()
+        }
         let blockUI = showLoading && !hasLoaded
         if blockUI {
             isLoading = true

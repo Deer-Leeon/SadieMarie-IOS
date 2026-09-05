@@ -65,6 +65,32 @@ enum AdminAPIError: LocalizedError {
         if case .forbidden = self { return true }
         return false
     }
+
+    /// Clerk can throw `authentication_invalid` for a split second after
+    /// sign-in, while the session JWT is still settling.
+    static func isTransientAuthFailure(_ error: Error) -> Bool {
+        if let api = error as? AdminAPIError {
+            switch api {
+            case .unauthorized, .noActiveSession:
+                return true
+            case .unknown(let inner):
+                return isTransientAuthFailure(inner)
+            default:
+                return false
+            }
+        }
+        let haystack = "\(error.localizedDescription)\n\(String(reflecting: error))".lowercased()
+        return haystack.contains("authentication_invalid")
+            || haystack.contains("unable to authenticate")
+            || haystack.contains("invalid authentication")
+            || haystack.contains("unauthenticated")
+    }
+
+    fileprivate static func mappedFromTokenFailure(_ error: Error) -> AdminAPIError {
+        if let api = error as? AdminAPIError { return api }
+        if isTransientAuthFailure(error) { return .unauthorized }
+        return .unknown(error)
+    }
 }
 
 // MARK: - Client
@@ -171,18 +197,44 @@ actor AdminAPIClient {
     // MARK: Public API
 
     /// Returns the active Clerk session JWT for `Authorization: Bearer` headers.
-    static func clerkSessionToken() async throws -> String {
-        let session = await MainActor.run { Clerk.shared.session }
-        guard let session else {
-            throw AdminAPIError.noActiveSession
+    /// Retries briefly after sign-in because Clerk can report no session / 
+    /// `authentication_invalid` for a moment before the JWT is ready.
+    static func clerkSessionToken(forceRefresh: Bool = false) async throws -> String {
+        let attempts = forceRefresh ? 2 : 4
+        var lastError: Error = AdminAPIError.noActiveSession
+
+        for attempt in 0..<attempts {
+            if attempt > 0 {
+                let delayNs = UInt64(150_000_000) * UInt64(1 << min(attempt - 1, 2))
+                try await Task.sleep(nanoseconds: delayNs)
+            }
+
+            let session = await MainActor.run { Clerk.shared.session }
+            guard let session else {
+                lastError = AdminAPIError.noActiveSession
+                continue
+            }
+
+            do {
+                let skipCache = forceRefresh || attempt > 0
+                let jwt: String?
+                if skipCache {
+                    jwt = try await session.getToken(Session.GetTokenOptions(skipCache: true))
+                } else if let cached = try await session.getToken() {
+                    jwt = cached
+                } else {
+                    jwt = try await session.getToken(Session.GetTokenOptions(skipCache: true))
+                }
+                if let jwt {
+                    return jwt
+                }
+                lastError = AdminAPIError.unauthorized
+            } catch {
+                lastError = error
+            }
         }
-        if let jwt = try await session.getToken() {
-            return jwt
-        }
-        guard let jwt = try await session.getToken(Session.GetTokenOptions(skipCache: true)) else {
-            throw AdminAPIError.unauthorized
-        }
-        return jwt
+
+        throw AdminAPIError.mappedFromTokenFailure(lastError)
     }
 
     /// `GET /api/admin/clients/list` — CRM client directory.
@@ -283,32 +335,23 @@ actor AdminAPIClient {
         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
     ) async throws -> Data {
         do {
-            let token = try await resolvedToken()
-            var request = URLRequest(url: url)
-            request.cachePolicy = cachePolicy
-            request.httpMethod = method.rawValue
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Accept")
-            for (header, value) in additionalHeaders {
-                request.setValue(value, forHTTPHeaderField: header)
-            }
-            if let body {
-                request.httpBody = body
-            }
-
-            print("🌐 [AdminAPIClient] \(method.rawValue) \(url.absoluteString)")
-
-            let (data, response) = try await session.data(for: request)
-            try validate(response: response, data: data)
-            return data
-        } catch let error as AdminAPIError {
-            throw error
-        } catch let error as URLError {
-            throw AdminAPIError.transport(error)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            throw AdminAPIError.unknown(error)
+            return try await sendAuthenticatedRequest(
+                url: url,
+                method: method,
+                body: body,
+                additionalHeaders: additionalHeaders,
+                cachePolicy: cachePolicy,
+                forceRefreshToken: false
+            )
+        } catch let error as AdminAPIError where AdminAPIError.isTransientAuthFailure(error) {
+            return try await sendAuthenticatedRequest(
+                url: url,
+                method: method,
+                body: body,
+                additionalHeaders: additionalHeaders,
+                cachePolicy: cachePolicy,
+                forceRefreshToken: true
+            )
         }
     }
 
@@ -348,32 +391,21 @@ actor AdminAPIClient {
         cachePolicy: URLRequest.CachePolicy = .reloadIgnoringLocalCacheData
     ) async throws -> (data: Data, statusCode: Int) {
         do {
-            let token = try await resolvedToken()
-            let request = try makeRequest(
+            return try await sendAuthenticatedStatusRequest(
                 endpoint: endpoint,
-                token: token,
                 method: method,
                 body: body,
-                cachePolicy: cachePolicy
+                cachePolicy: cachePolicy,
+                forceRefreshToken: false
             )
-            let (data, response) = try await session.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                throw AdminAPIError.invalidResponse
-            }
-            switch http.statusCode {
-            case 401:
-                throw AdminAPIError.unauthorized
-            case 403:
-                throw AdminAPIError.forbidden
-            default:
-                return (data, http.statusCode)
-            }
-        } catch let error as AdminAPIError {
-            throw error
-        } catch let error as URLError {
-            throw AdminAPIError.transport(error)
-        } catch {
-            throw AdminAPIError.unknown(error)
+        } catch let error as AdminAPIError where AdminAPIError.isTransientAuthFailure(error) {
+            return try await sendAuthenticatedStatusRequest(
+                endpoint: endpoint,
+                method: method,
+                body: body,
+                cachePolicy: cachePolicy,
+                forceRefreshToken: true
+            )
         }
     }
 
@@ -399,17 +431,12 @@ actor AdminAPIClient {
         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
     ) async throws -> T {
         do {
-            let token = try await resolvedToken()
-            let request = try makeRequest(
-                endpoint: endpoint,
-                token: token,
+            let data = try await fetchData(
+                endpoint,
                 method: method,
                 body: body,
                 cachePolicy: cachePolicy
             )
-
-            let (data, response) = try await session.data(for: request)
-            try validate(response: response, data: data)
             do {
                 return try Self.decodeJSON(T.self, from: data)
             } catch let error as DecodingError {
@@ -436,6 +463,88 @@ actor AdminAPIClient {
     }
 
     // MARK: Private helpers
+
+    private func sendAuthenticatedRequest(
+        url: URL,
+        method: HTTPMethod,
+        body: Data?,
+        additionalHeaders: [String: String],
+        cachePolicy: URLRequest.CachePolicy,
+        forceRefreshToken: Bool
+    ) async throws -> Data {
+        do {
+            let token = try await requestToken(forceRefresh: forceRefreshToken)
+            var request = URLRequest(url: url)
+            request.cachePolicy = cachePolicy
+            request.httpMethod = method.rawValue
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            for (header, value) in additionalHeaders {
+                request.setValue(value, forHTTPHeaderField: header)
+            }
+            if let body {
+                request.httpBody = body
+            }
+
+            print("🌐 [AdminAPIClient] \(method.rawValue) \(url.absoluteString)")
+
+            let (data, response) = try await session.data(for: request)
+            try validate(response: response, data: data)
+            return data
+        } catch let error as AdminAPIError {
+            throw error
+        } catch let error as URLError {
+            throw AdminAPIError.transport(error)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw AdminAPIError.mappedFromTokenFailure(error)
+        }
+    }
+
+    private func sendAuthenticatedStatusRequest(
+        endpoint: String,
+        method: HTTPMethod,
+        body: Data?,
+        cachePolicy: URLRequest.CachePolicy,
+        forceRefreshToken: Bool
+    ) async throws -> (data: Data, statusCode: Int) {
+        do {
+            let token = try await requestToken(forceRefresh: forceRefreshToken)
+            let request = try makeRequest(
+                endpoint: endpoint,
+                token: token,
+                method: method,
+                body: body,
+                cachePolicy: cachePolicy
+            )
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw AdminAPIError.invalidResponse
+            }
+            switch http.statusCode {
+            case 401:
+                throw AdminAPIError.unauthorized
+            case 403:
+                throw AdminAPIError.forbidden
+            default:
+                return (data, http.statusCode)
+            }
+        } catch let error as AdminAPIError {
+            throw error
+        } catch let error as URLError {
+            throw AdminAPIError.transport(error)
+        } catch {
+            throw AdminAPIError.mappedFromTokenFailure(error)
+        }
+    }
+
+    private func requestToken(forceRefresh: Bool) async throws -> String {
+        if forceRefresh {
+            return try await Self.clerkSessionToken(forceRefresh: true)
+        }
+        return try await resolvedToken()
+    }
 
     private func makeRequest(
         endpoint: String,

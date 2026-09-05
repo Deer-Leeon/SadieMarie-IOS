@@ -116,6 +116,7 @@ struct BookingsView: View {
             .task(id: clerk.session?.id) {
                 guard clerk.session != nil else { return }
                 if !viewModel.hasLoaded {
+                    await SessionKeepAlive.waitUntilReadyForAPI()
                     await viewModel.load()
                 }
                 await openPendingPushAppointmentIfNeeded()

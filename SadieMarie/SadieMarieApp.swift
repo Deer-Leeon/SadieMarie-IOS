@@ -131,6 +131,13 @@ private struct AppRootContent: View {
             guard newId != nil else { return }
             Task { await SessionKeepAlive.run() }
         }
+        .onChange(of: isSignedIn) { _, signedIn in
+            guard signedIn, !showSplash, !bookingsViewModel.hasLoaded else { return }
+            showSplash = true
+            didScheduleDismiss = false
+            splashStartedAt = Date().addingTimeInterval(-Self.minimumSplashDuration)
+            considerDismissingSplash()
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background {
                 SessionKeepAlive.scheduleBackgroundRefresh()

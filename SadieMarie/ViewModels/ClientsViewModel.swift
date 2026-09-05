@@ -33,6 +33,9 @@ final class ClientsViewModel {
     var filteredCount: Int { filteredClients.count }
 
     func load(showLoading: Bool = true) async {
+        if !hasLoaded {
+            await SessionKeepAlive.waitUntilReadyForAPI()
+        }
         let blockUI = showLoading && !hasLoaded
         if blockUI {
             isLoading = true
