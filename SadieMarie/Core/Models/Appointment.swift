@@ -32,6 +32,12 @@ struct Appointment: Identifiable, Hashable, Sendable {
     let clientNoShowFlag: Bool
     /// Latest appointment settlement or Terminal attempt.
     let terminalPayment: AppointmentPaymentSummary?
+    /// Parent visit id when this row is a catalogue extra done during that visit.
+    let attachedToAppointmentId: String?
+    /// Catalogue extras nested under this visit (same client and times).
+    let extras: [Appointment]
+    /// Count of nested extras; used for the calendar +N badge.
+    let extraCount: Int
 
     nonisolated init(
         id: String,
@@ -51,7 +57,10 @@ struct Appointment: Identifiable, Hashable, Sendable {
         stripeCustomerId: String? = nil,
         bookingNotes: String? = nil,
         clientNoShowFlag: Bool = false,
-        terminalPayment: AppointmentPaymentSummary? = nil
+        terminalPayment: AppointmentPaymentSummary? = nil,
+        attachedToAppointmentId: String? = nil,
+        extras: [Appointment] = [],
+        extraCount: Int = 0
     ) {
         self.id = id
         self.calUid = calUid
@@ -71,6 +80,9 @@ struct Appointment: Identifiable, Hashable, Sendable {
         self.bookingNotes = bookingNotes
         self.clientNoShowFlag = clientNoShowFlag
         self.terminalPayment = terminalPayment
+        self.attachedToAppointmentId = attachedToAppointmentId
+        self.extras = extras
+        self.extraCount = extraCount > 0 ? extraCount : extras.count
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -92,6 +104,9 @@ struct Appointment: Identifiable, Hashable, Sendable {
         case bookingNotes
         case clientNoShowFlag
         case terminalPayment
+        case attachedToAppointmentId
+        case extras
+        case extraCount
     }
 }
 
@@ -119,7 +134,13 @@ extension Appointment: Decodable {
             terminalPayment: try container.decodeIfPresent(
                 AppointmentPaymentSummary.self,
                 forKey: .terminalPayment
-            )
+            ),
+            attachedToAppointmentId: try container.decodeIfPresent(
+                String.self,
+                forKey: .attachedToAppointmentId
+            ),
+            extras: try container.decodeIfPresent([Appointment].self, forKey: .extras) ?? [],
+            extraCount: try container.decodeIfPresent(Int.self, forKey: .extraCount) ?? 0
         )
     }
 }
@@ -145,6 +166,13 @@ extension Appointment: Encodable {
         try container.encodeIfPresent(bookingNotes, forKey: .bookingNotes)
         try container.encode(clientNoShowFlag, forKey: .clientNoShowFlag)
         try container.encodeIfPresent(terminalPayment, forKey: .terminalPayment)
+        try container.encodeIfPresent(attachedToAppointmentId, forKey: .attachedToAppointmentId)
+        if !extras.isEmpty {
+            try container.encode(extras, forKey: .extras)
+        }
+        if extraCount > 0 {
+            try container.encode(extraCount, forKey: .extraCount)
+        }
     }
 }
 
@@ -188,7 +216,10 @@ extension Appointment {
             stripeCustomerId: stripeCustomerId,
             bookingNotes: bookingNotes,
             clientNoShowFlag: flag,
-            terminalPayment: terminalPayment
+            terminalPayment: terminalPayment,
+            attachedToAppointmentId: attachedToAppointmentId,
+            extras: extras,
+            extraCount: extraCount
         )
     }
 
@@ -211,8 +242,59 @@ extension Appointment {
             stripeCustomerId: stripeCustomerId,
             bookingNotes: bookingNotes,
             clientNoShowFlag: clientNoShowFlag,
-            terminalPayment: payment
+            terminalPayment: payment,
+            attachedToAppointmentId: attachedToAppointmentId,
+            extras: extras,
+            extraCount: extraCount
         )
+    }
+
+    func withExtras(_ extras: [Appointment]) -> Appointment {
+        Appointment(
+            id: id,
+            calUid: calUid,
+            clientFirstName: clientFirstName,
+            clientLastName: clientLastName,
+            bookingTime: bookingTime,
+            endTime: endTime,
+            serviceName: serviceName,
+            status: status,
+            clientPhone: clientPhone,
+            clientEmail: clientEmail,
+            servicePrice: servicePrice,
+            serviceDescription: serviceDescription,
+            serviceSlug: serviceSlug,
+            serviceColor: serviceColor,
+            stripeCustomerId: stripeCustomerId,
+            bookingNotes: bookingNotes,
+            clientNoShowFlag: clientNoShowFlag,
+            terminalPayment: terminalPayment,
+            attachedToAppointmentId: attachedToAppointmentId,
+            extras: extras,
+            extraCount: extras.count
+        )
+    }
+
+    /// Apply a settlement to this visit and/or nested extras when their ids match.
+    func withPatchedPayments(
+        ids: [String],
+        payment: AppointmentPaymentSummary?,
+        payments: [AppointmentPaymentSummary]? = nil
+    ) -> Appointment {
+        func resolvedPayment(for id: String, current: AppointmentPaymentSummary?) -> AppointmentPaymentSummary? {
+            if let grouped = payments?.first(where: { $0.appointmentId == id && $0.isSettled }) {
+                return grouped
+            }
+            return ids.contains(id) ? payment : current
+        }
+        return withTerminalPayment(resolvedPayment(for: id, current: terminalPayment))
+            .withExtras(
+                extras.map { extra in
+                    extra.withTerminalPayment(
+                        resolvedPayment(for: extra.id, current: extra.terminalPayment)
+                    )
+                }
+            )
     }
 
     /// Match calendar rows to a CRM client by phone digits and/or email.
@@ -357,6 +439,7 @@ extension Array where Element == Appointment {
                 && s != AppointmentStatus.canceledByClient.rawValue
                 && s != AppointmentStatus.canceledByClientLate.rawValue
                 && s != AppointmentStatus.canceledBySystem.rawValue
+                && !apt.isAttachedExtra
         }
     }
 }

@@ -37,6 +37,9 @@ final class BookingsViewModel {
     /// - Parameter showLoading: Full-screen overlay. Live sync (push / poll /
     ///   foreground) passes `false` so the calendar does not flash empty.
     func load(showLoading: Bool = true) async {
+        if !hasLoaded {
+            await SessionKeepAlive.waitUntilReadyForAPI()
+        }
         let blockUI = showLoading && !hasLoaded
         if blockUI {
             isLoading = true
@@ -211,9 +214,7 @@ final class BookingsViewModel {
         guard !appointmentIds.isEmpty else { return }
         let ids = Set(appointmentIds)
         appointments = appointments.map { appointment in
-            ids.contains(appointment.id)
-                ? appointment.withTerminalPayment(payment)
-                : appointment
+            appointment.withPatchedPayments(ids: Array(ids), payment: payment)
         }
     }
 

@@ -4,6 +4,8 @@ import SwiftUI
 struct BookingsDayGroupedList: View {
     let appointments: [Appointment]
     var onSelectAppointment: ((Appointment) -> Void)? = nil
+    /// Client history nests extras under the visit; the Bookings list does not.
+    var showsNestedExtras: Bool = false
 
     var body: some View {
         LazyVStack(
@@ -14,7 +16,8 @@ struct BookingsDayGroupedList: View {
             BookingsDaySectionRows(
                 appointments: appointments,
                 onSelectAppointment: onSelectAppointment,
-                usesSection: true
+                usesSection: true,
+                showsNestedExtras: showsNestedExtras
             )
         }
     }
@@ -28,6 +31,7 @@ struct BookingsDaySectionRows: View {
     var headerSurface: Color = AdminTheme.cream.opacity(0.95)
     /// Sticky `Section` headers. Off for past rows so they never pin over upcoming.
     var usesSection: Bool = false
+    var showsNestedExtras: Bool = false
 
     private var sections: [(day: Date, appointments: [Appointment])] {
         BookingDisplay.groupedByDay(appointments)
@@ -52,12 +56,22 @@ struct BookingsDaySectionRows: View {
 
     @ViewBuilder
     private func cards(for appointments: [Appointment]) -> some View {
-        ForEach(appointments) { appointment in
-            BookingCardView(appointment: appointment)
-                .contentShape(RoundedRectangle(cornerRadius: AdminTheme.Radius.card))
-                .onTapGesture {
-                    onSelectAppointment?(appointment)
+        ForEach(appointments.filter { !$0.isAttachedExtra }) { appointment in
+            VStack(alignment: .leading, spacing: 0) {
+                BookingCardView(appointment: appointment)
+                    .contentShape(RoundedRectangle(cornerRadius: AdminTheme.Radius.card))
+                    .onTapGesture {
+                        onSelectAppointment?(appointment)
+                    }
+
+                if showsNestedExtras, !appointment.extras.isEmpty {
+                    NestedVisitExtras(
+                        extras: appointment.extras,
+                        muted: BookingDisplay.isReadOnly(appointment),
+                        onSelect: { onSelectAppointment?(appointment) }
+                    )
                 }
+            }
         }
     }
 }

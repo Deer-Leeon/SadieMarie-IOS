@@ -48,6 +48,7 @@ extension Array where Element == Appointment {
                 && status != AppointmentStatus.canceledByClient.rawValue
                 && status != AppointmentStatus.canceledByClientLate.rawValue
                 && status != AppointmentStatus.canceledBySystem.rawValue
+                && !appointment.isAttachedExtra
         }
     }
 

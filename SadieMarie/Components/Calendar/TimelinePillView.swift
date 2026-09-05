@@ -41,6 +41,7 @@ struct TimelinePillView: View {
     }
 
     private var compactOverlap: Bool { positioned.totalCols > 1 }
+    private var peekingUnder: Bool { compactOverlap && positioned.col == 0 }
 
     private var clientName: String {
         if compactOverlap, let first = appointment.clientFirstName?.trimmingCharacters(in: .whitespacesAndNewlines), !first.isEmpty {
@@ -69,15 +70,21 @@ struct TimelinePillView: View {
                 .background(backgroundColor)
                 .overlay(pillBorder)
                 .overlay(alignment: .topTrailing) {
-                    if hasNoShowFlag {
-                        Image(systemName: "flag.fill")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(AdminTheme.awaitingPaymentText)
-                            .padding(3)
-                            .background(AdminTheme.awaitingPaymentBackground.opacity(0.95))
-                            .clipShape(RoundedRectangle(cornerRadius: 3))
-                            .padding(3)
-                            .accessibilityLabel("No-show flag")
+                    if !peekingUnder {
+                        HStack(spacing: 2) {
+                            SettlementCheckMarker(payment: appointment.terminalPayment, size: .sm)
+                            ExtraCountBadge(count: appointment.extraCount, size: .sm)
+                            if hasNoShowFlag {
+                                Image(systemName: "flag.fill")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundStyle(AdminTheme.awaitingPaymentText)
+                                    .padding(3)
+                                    .background(AdminTheme.awaitingPaymentBackground.opacity(0.95))
+                                    .clipShape(RoundedRectangle(cornerRadius: 3))
+                                    .accessibilityLabel("No-show flag")
+                            }
+                        }
+                        .padding(3)
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 4))

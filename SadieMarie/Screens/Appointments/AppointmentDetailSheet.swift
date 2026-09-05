@@ -19,6 +19,10 @@ struct AppointmentDetailSheet: View {
     /// Live settlement snapshot so Comp/Cash/Charge update the open sheet
     /// immediately without relying on a close/reopen cycle.
     @State private var livePayment: AppointmentPaymentSummary?
+    @State private var liveExtras: [Appointment]
+    @State private var extraBusy = false
+    @State private var extraError: String?
+    @State private var showExtraPicker = false
 
     init(
         appointment: Appointment,
@@ -33,6 +37,13 @@ struct AppointmentDetailSheet: View {
         self.onMutated = onMutated
         self.onPaymentMutated = onPaymentMutated
         _livePayment = State(initialValue: appointment.terminalPayment)
+        _liveExtras = State(initialValue: appointment.extras)
+    }
+
+    private var liveAppointment: Appointment {
+        appointment
+            .withTerminalPayment(livePayment)
+            .withExtras(liveExtras)
     }
 
     private var headerStatus: BookingDisplay.DetailHeaderStatus {
@@ -88,16 +99,25 @@ struct AppointmentDetailSheet: View {
                     clientCard
                     timeCard
                     serviceCard
+                    if !isReadOnly || !liveExtras.isEmpty {
+                        VisitExtrasCard(
+                            extras: liveExtras,
+                            canEdit: !isReadOnly && BookingDisplay.isConfirmed(appointment),
+                            isBusy: extraBusy || isBusy,
+                            errorMessage: extraError,
+                            onAdd: { showExtraPicker = true },
+                            onRemove: { extraId in
+                                Task { await removeExtra(extraId) }
+                            }
+                        )
+                    }
                     if !isReadOnly {
                         AppointmentPaymentCard(
-                            appointment: appointment,
+                            appointment: liveAppointment,
                             payment: $livePayment,
                             knownAppointments: knownAppointments,
                             onPaymentChanged: { payment, ids in
-                                if ids.contains(appointment.id) {
-                                    livePayment = payment
-                                }
-                                onPaymentMutated(payment, ids)
+                                liveAppointmentUpdated(payment: payment, ids: ids)
                             }
                         )
                     }
@@ -143,6 +163,15 @@ struct AppointmentDetailSheet: View {
                     onMutated()
                     clientProfileEntry = nil
                 }
+            )
+        }
+        .sheet(isPresented: $showExtraPicker) {
+            ExtraServicePickerSheet(
+                onSelect: { service in
+                    showExtraPicker = false
+                    Task { await addExtra(service) }
+                },
+                onCancel: { showExtraPicker = false }
             )
         }
         .fullScreenCover(isPresented: $showReschedule) {
@@ -431,6 +460,50 @@ struct AppointmentDetailSheet: View {
     }
 
     // MARK: - Logic
+
+    private func liveAppointmentUpdated(
+        payment: AppointmentPaymentSummary?,
+        ids: [String]
+    ) {
+        let patched = liveAppointment.withPatchedPayments(ids: ids, payment: payment)
+        livePayment = patched.terminalPayment
+        liveExtras = patched.extras
+        onPaymentMutated(payment, ids)
+    }
+
+    private func addExtra(_ service: ManualBookingServiceOption) async {
+        guard !extraBusy else { return }
+        extraBusy = true
+        extraError = nil
+        defer { extraBusy = false }
+        do {
+            let extra = try await AdminAPIClient.shared.addAppointmentExtra(
+                appointmentId: appointment.id,
+                eventTypeId: service.eventTypeId
+            )
+            liveExtras.append(extra)
+            onMutated()
+        } catch {
+            extraError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func removeExtra(_ extraId: String) async {
+        guard !extraBusy else { return }
+        extraBusy = true
+        extraError = nil
+        defer { extraBusy = false }
+        do {
+            try await AdminAPIClient.shared.deleteAppointmentExtra(
+                appointmentId: appointment.id,
+                extraId: extraId
+            )
+            liveExtras.removeAll { $0.id == extraId }
+            onMutated()
+        } catch {
+            extraError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
 
     private func openClientProfile() {
         clientProfileEntry = .fromAppointment(appointment)

@@ -28,11 +28,41 @@ struct AppointmentPaymentCard: View {
         BookingDisplay.isConfirmed(appointment)
     }
 
+    private var chargeLines: [ChargeLine] {
+        AppointmentChargePlan.lines(for: appointment)
+    }
+
+    private var chargeTotalCents: Int {
+        chargeLines.reduce(0) { $0 + $1.cents }
+    }
+
+    private var canCharge: Bool {
+        isConfirmed && !chargeLines.isEmpty && chargeLines.contains { $0.cents > 0 }
+    }
+
+    private var showsUnsettledBox: Bool {
+        appointment.terminalPayment?.isSettled != true || !appointment.unpaidExtras.isEmpty
+    }
+
+    private var settledExtras: [Appointment] {
+        appointment.extras.filter { $0.terminalPayment?.isSettled == true }
+    }
+
     var body: some View {
-        Group {
-            if let succeededPayment {
+        VStack(alignment: .leading, spacing: 12) {
+            if let succeededPayment, appointment.terminalPayment?.isSettled == true {
                 settlementBanner(succeededPayment)
-            } else {
+                ForEach(settledExtras) { extra in
+                    if let extraPayment = extra.terminalPayment, extraPayment.isSettled {
+                        settlementBanner(
+                            extraPayment,
+                            heading: "\(BookingDisplay.appointmentServiceLabel(extra)) · done during this visit"
+                        )
+                    }
+                }
+            }
+
+            if showsUnsettledBox {
                 unsettledBox
             }
         }
@@ -41,6 +71,9 @@ struct AppointmentPaymentCard: View {
                 appointment: appointment.withTerminalPayment(payment),
                 initialPayment: payment,
                 knownAppointments: knownAppointments,
+                chargeAppointmentId: AppointmentChargePlan.chargeTargetId(for: appointment),
+                includedVisitIds: AppointmentChargePlan.forcedAdditionalIds(for: appointment),
+                chargeLines: chargeLines,
                 onPaymentChanged: { updated, ids in
                     commitPayment(updated, relatedIds: ids)
                 },
@@ -82,22 +115,29 @@ struct AppointmentPaymentCard: View {
 
                 Text(
                     isConfirmed
-                        ? "Choose how this appointment was settled."
+                        ? (appointment.terminalPayment?.isSettled == true
+                            ? "New extra · done during this visit"
+                            : "Choose how this appointment was settled.")
                         : "Only confirmed appointments can be settled."
                 )
                 .font(AdminTheme.fontAdminSans(size: 13))
                 .foregroundStyle(AdminTheme.stone700)
 
+                ChargeBreakdownView(
+                    lines: chargeLines,
+                    totalCents: chargeTotalCents
+                )
+
                 HStack(spacing: 8) {
                     paymentAction("Charge", icon: "creditcard") {
                         showTerminal = true
                     }
-                    .disabled(!isConfirmed || isSubmitting || !hasChargeablePrice)
+                    .disabled(!canCharge || isSubmitting)
 
                     paymentAction("Cash", icon: "dollarsign") {
                         prepareSettlement(.cash)
                     }
-                    .disabled(!isConfirmed || isSubmitting || appointment.servicePrice == nil)
+                    .disabled(!canCharge || isSubmitting)
 
                     paymentAction("Comp", icon: "heart") {
                         prepareSettlement(.complimentary)
@@ -143,7 +183,10 @@ struct AppointmentPaymentCard: View {
 
     // MARK: - Settled banner (web PaymentBox)
 
-    private func settlementBanner(_ payment: AppointmentPaymentSummary) -> some View {
+    private func settlementBanner(
+        _ payment: AppointmentPaymentSummary,
+        heading: String? = nil
+    ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
                 HStack(alignment: .center, spacing: 10) {
@@ -155,7 +198,7 @@ struct AppointmentPaymentCard: View {
                         .clipShape(Circle())
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(BookingDisplay.settlementBannerEyebrow(for: payment).uppercased())
+                        Text((heading ?? BookingDisplay.settlementBannerEyebrow(for: payment)).uppercased())
                             .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
                             .tracking(2.2)
                             .foregroundStyle(AdminTheme.confirmedText)
@@ -233,11 +276,16 @@ struct AppointmentPaymentCard: View {
                         .disabled(isSubmitting)
                 }
 
-                if !siblings.isEmpty {
+                ChargeBreakdownView(
+                    lines: chargeLines,
+                    totalCents: chargeTotalCents,
+                    heading: "This visit"
+                )
+
+                if !otherVisits.isEmpty {
                     ScrollView {
                         SameDayVisitChecklist(
-                            primary: appointment,
-                            siblings: siblings,
+                            siblings: otherVisits,
                             selectedExtraIds: selectedExtraIds,
                             disabled: isSubmitting
                         ) { id in
@@ -249,6 +297,24 @@ struct AppointmentPaymentCard: View {
                         }
                     }
                     .scrollBounceBehavior(.basedOnSize)
+                }
+
+                if !selectedExtraIds.isEmpty {
+                    HStack {
+                        Text("Charge")
+                        Spacer()
+                        Text(BookingDisplay.formattedCents(selectedCashTotalCents))
+                    }
+                    .font(AdminTheme.fontAdminSans(size: 14, weight: .semibold))
+                    .foregroundStyle(AdminTheme.stone900)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(AdminTheme.stone50)
+                    .clipShape(RoundedRectangle(cornerRadius: AdminTheme.Radius.card))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AdminTheme.Radius.card)
+                            .stroke(AdminTheme.stone200, lineWidth: 1)
+                    )
                 }
 
                 Button {
@@ -277,32 +343,32 @@ struct AppointmentPaymentCard: View {
 
     // MARK: - Actions
 
-    private var hasChargeablePrice: Bool {
-        guard let price = appointment.servicePrice else { return false }
-        return price >= 0.5
+    private var otherVisits: [SameDayUnsettledVisit] {
+        let locked = Set(chargeLines.map(\.id))
+        return siblings.filter { !locked.contains($0.id) }
     }
 
     private var selectedCashTotalCents: Int {
-        let extra = siblings
+        let extra = otherVisits
             .filter { selectedExtraIds.contains($0.id) }
             .reduce(0) { $0 + $1.quotedCents }
-        return TerminalDiscount.quotedCents(fromServicePrice: appointment.servicePrice) + extra
+        return chargeTotalCents + extra
     }
 
-    private var selectedVisitCount: Int {
-        1 + selectedExtraIds.count
+    private var selectedSiblingCount: Int {
+        selectedExtraIds.count
     }
 
     private func settlementExplanation(_ method: AppointmentSettlementMethod) -> String {
         switch method {
         case .cash:
-            if selectedVisitCount > 1 {
-                return "Record \(BookingDisplay.formattedCents(selectedCashTotalCents)) across \(selectedVisitCount) visits as paid outside Stripe."
+            if selectedSiblingCount > 0 {
+                return "Record \(BookingDisplay.formattedCents(selectedCashTotalCents)) for this visit plus \(selectedSiblingCount) other \(selectedSiblingCount == 1 ? "appointment" : "appointments") as paid outside Stripe."
             }
-            return "Record \(BookingDisplay.formattedPrice(appointment.servicePrice) ?? "the service price") as paid outside Stripe."
+            return "Record \(BookingDisplay.formattedCents(chargeTotalCents)) as paid outside Stripe."
         case .complimentary:
-            if selectedVisitCount > 1 {
-                return "Record \(selectedVisitCount) visits as settled with no payment collected."
+            if selectedSiblingCount > 0 {
+                return "Record this visit plus \(selectedSiblingCount) other \(selectedSiblingCount == 1 ? "appointment" : "appointments") as settled with no payment collected."
             }
             return "Record this service as settled with no payment collected."
         }
@@ -343,26 +409,27 @@ struct AppointmentPaymentCard: View {
         errorMessage = nil
         defer { isSubmitting = false }
 
-        let extras = Array(selectedExtraIds)
+        let extras = AppointmentChargePlan.forcedAdditionalIds(for: appointment) + Array(selectedExtraIds)
+        let chargeId = AppointmentChargePlan.chargeTargetId(for: appointment)
         do {
             let result = try await AdminAPIClient.shared.settleAppointment(
-                appointmentId: appointment.id,
+                appointmentId: chargeId,
                 method: method,
                 note: note,
                 additionalAppointmentIds: extras
             )
             if result.succeeded, let payments = result.response.payments, !payments.isEmpty {
-                pendingPatches = paymentPatches(from: payments, extras: extras)
+                pendingPatches = paymentPatches(from: payments, extras: extras, chargeId: chargeId)
                 settlementMethod = nil
                 return
             }
             if result.succeeded, let updated = result.response.payment {
-                pendingPatches = [(updated, [appointment.id] + extras)]
+                pendingPatches = [(updated, [chargeId] + extras)]
                 settlementMethod = nil
                 return
             }
             if let updated = result.response.payment, updated.isSettled {
-                pendingPatches = [(updated, [appointment.id] + extras)]
+                pendingPatches = [(updated, [chargeId] + extras)]
                 settlementMethod = nil
                 return
             }
@@ -376,13 +443,14 @@ struct AppointmentPaymentCard: View {
 
     private func paymentPatches(
         from payments: [AppointmentPaymentSummary],
-        extras: [String]
+        extras: [String],
+        chargeId: String
     ) -> [(AppointmentPaymentSummary?, [String])] {
         if payments.count == 1 {
-            return [(payments[0], [appointment.id] + extras)]
+            return [(payments[0], [chargeId] + extras)]
         }
         return payments.map { payment in
-            (payment, [payment.appointmentId ?? appointment.id])
+            (payment, [payment.appointmentId ?? chargeId])
         }
     }
 

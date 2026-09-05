@@ -445,9 +445,7 @@ final class ClientProfileViewModel {
         guard !appointmentIds.isEmpty else { return }
         let ids = Set(appointmentIds)
         history = history.map { appointment in
-            ids.contains(appointment.id)
-                ? appointment.withTerminalPayment(payment)
-                : appointment
+            appointment.withPatchedPayments(ids: Array(ids), payment: payment)
         }
     }
 
@@ -463,7 +461,7 @@ final class ClientProfileViewModel {
 
         do {
             let historyResponse = try await historyTask
-            history = historyResponse.appointments
+            history = historyResponse.appointments.filter { !$0.isAttachedExtra }
             crmStats = historyResponse.crmStats
             if let existing = client {
                 client = Client(

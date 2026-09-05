@@ -10,6 +10,7 @@ enum SameDayUnsettledMatching {
     ) -> [SameDayUnsettledVisit] {
         appointments.compactMap { candidate -> SameDayUnsettledVisit? in
             guard candidate.id != appointment.id else { return nil }
+            guard !candidate.isAttachedExtra else { return nil }
             guard BookingDisplay.isConfirmed(candidate) else { return nil }
             guard candidate.terminalPayment?.isSettled != true else { return nil }
             guard candidate.terminalPayment?.isActiveTerminalPayment != true else {

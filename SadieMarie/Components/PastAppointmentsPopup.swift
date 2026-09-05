@@ -107,7 +107,8 @@ private struct PastAppointmentsPopupList: View {
             BookingsDaySectionRows(
                 appointments: appointments,
                 onSelectAppointment: onSelectAppointment,
-                headerSurface: AdminTheme.cardFill
+                headerSurface: AdminTheme.cardFill,
+                showsNestedExtras: true
             )
             Color.clear
                 .frame(height: 1)

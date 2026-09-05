@@ -6,6 +6,9 @@ struct TerminalChargeView: View {
     let appointment: Appointment
     let initialPayment: AppointmentPaymentSummary?
     var knownAppointments: [Appointment] = []
+    var chargeAppointmentId: String? = nil
+    var includedVisitIds: [String] = []
+    var chargeLines: [ChargeLine] = []
     var onPaymentChanged: (AppointmentPaymentSummary?, [String]) -> Void
     var onClose: () -> Void
 
@@ -24,35 +27,77 @@ struct TerminalChargeView: View {
         appointment: Appointment,
         initialPayment: AppointmentPaymentSummary?,
         knownAppointments: [Appointment] = [],
+        chargeAppointmentId: String? = nil,
+        includedVisitIds: [String] = [],
+        chargeLines: [ChargeLine] = [],
         onPaymentChanged: @escaping (AppointmentPaymentSummary?, [String]) -> Void,
         onClose: @escaping () -> Void
     ) {
         self.appointment = appointment
         self.initialPayment = initialPayment
         self.knownAppointments = knownAppointments
+        self.chargeAppointmentId = chargeAppointmentId
+        self.includedVisitIds = includedVisitIds
+        self.chargeLines = chargeLines
         self.onPaymentChanged = onPaymentChanged
         self.onClose = onClose
         _payment = State(initialValue: initialPayment)
-        let quoted = TerminalDiscount.quotedCents(fromServicePrice: appointment.servicePrice)
+        let visitQuoted = chargeLines.isEmpty
+            ? TerminalDiscount.quotedCents(fromServicePrice: appointment.servicePrice)
+            : chargeLines.reduce(0) { $0 + $1.cents }
         _customDollars = State(
-            initialValue: TerminalDiscount.formatCentsAsDollarInput(quoted)
+            initialValue: TerminalDiscount.formatCentsAsDollarInput(visitQuoted)
         )
     }
 
+    private var chargeId: String { chargeAppointmentId ?? appointment.id }
+
+    private var otherVisits: [SameDayUnsettledVisit] {
+        let locked = Set(chargeLines.map(\.id) + includedVisitIds)
+        return siblings.filter { !locked.contains($0.id) }
+    }
+
+    private var chargeSubtitle: String {
+        let name = BookingDisplay.clientDisplayName(
+            first: appointment.clientFirstName,
+            last: appointment.clientLastName
+        )
+        if !selectedExtraIds.isEmpty {
+            let count = selectedExtraIds.count
+            return "This visit + \(count) other \(count == 1 ? "appointment" : "appointments") for \(name)"
+        }
+        if chargeLines.count > 1 {
+            return "This visit for \(name)"
+        }
+        return "\(BookingDisplay.appointmentServiceLabel(appointment)) for \(name)"
+    }
+
     private var extraIds: [String] {
-        siblings.filter { selectedExtraIds.contains($0.id) }.map(\.id)
+        Array(Set(includedVisitIds + otherVisits.filter { selectedExtraIds.contains($0.id) }.map(\.id)))
     }
 
     private var relatedIds: [String] {
-        [appointment.id] + extraIds
+        [chargeId] + extraIds
+    }
+
+    private var showsVisitBreakdown: Bool {
+        chargeLines.count > 1
+            || !appointment.unpaidExtras.isEmpty
+            || !otherVisits.isEmpty
+    }
+
+    private var thisVisitQuotedCents: Int {
+        if !chargeLines.isEmpty {
+            return chargeLines.reduce(0) { $0 + $1.cents }
+        }
+        return TerminalDiscount.quotedCents(fromServicePrice: appointment.servicePrice)
     }
 
     private var quotedCents: Int {
-        let primary = TerminalDiscount.quotedCents(fromServicePrice: appointment.servicePrice)
-        let extras = siblings
+        let extras = otherVisits
             .filter { selectedExtraIds.contains($0.id) }
             .reduce(0) { $0 + $1.quotedCents }
-        return primary + extras
+        return thisVisitQuotedCents + extras
     }
 
     private var customCents: Int? {
@@ -174,17 +219,31 @@ struct TerminalChargeView: View {
 
                 amountSubtitle
 
-                Text(
-                    "\(BookingDisplay.appointmentServiceLabel(appointment)) for \(BookingDisplay.clientDisplayName(first: appointment.clientFirstName, last: appointment.clientLastName))"
-                )
+                Text(chargeSubtitle)
                 .font(AdminTheme.fontAdminSans(size: 14))
                 .foregroundStyle(AdminTheme.stone700)
                 .multilineTextAlignment(.center)
             }
 
+            if showsVisitBreakdown {
+                ChargeBreakdownView(
+                    lines: chargeLines.isEmpty
+                        ? [
+                            ChargeLine(
+                                id: appointment.id,
+                                label: BookingDisplay.appointmentServiceLabel(appointment),
+                                cents: thisVisitQuotedCents,
+                                detail: "Scheduled service"
+                            )
+                        ]
+                        : chargeLines,
+                    totalCents: thisVisitQuotedCents,
+                    heading: "This visit"
+                )
+            }
+
             SameDayVisitChecklist(
-                primary: appointment,
-                siblings: siblings,
+                siblings: otherVisits,
                 selectedExtraIds: selectedExtraIds,
                 disabled: isSubmitting
             ) { id in
@@ -193,6 +252,24 @@ struct TerminalChargeView: View {
                 } else {
                     selectedExtraIds.insert(id)
                 }
+            }
+
+            if !selectedExtraIds.isEmpty {
+                HStack {
+                    Text("Charge")
+                    Spacer()
+                    Text(BookingDisplay.formattedCents(quotedCents))
+                }
+                .font(AdminTheme.fontAdminSans(size: 14, weight: .semibold))
+                .foregroundStyle(AdminTheme.stone900)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(AdminTheme.stone50)
+                .clipShape(RoundedRectangle(cornerRadius: AdminTheme.Radius.card))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AdminTheme.Radius.card)
+                        .stroke(AdminTheme.stone200, lineWidth: 1)
+                )
             }
 
             amountPicker
@@ -533,7 +610,7 @@ struct TerminalChargeView: View {
 
         await performOperation(automaticallyRetryFailedAttempt: true) {
             try await AdminAPIClient.shared.startTerminalPayment(
-                appointmentId: appointment.id,
+                appointmentId: chargeId,
                 request: request
             )
         }
@@ -545,13 +622,13 @@ struct TerminalChargeView: View {
             return
         }
         await performOperation {
-            try await AdminAPIClient.shared.retryTerminalPayment(appointmentId: appointment.id)
+            try await AdminAPIClient.shared.retryTerminalPayment(appointmentId: chargeId)
         }
     }
 
     private func cancelPayment() async {
         await performOperation(showResult: true) {
-            try await AdminAPIClient.shared.cancelTerminalPayment(appointmentId: appointment.id)
+            try await AdminAPIClient.shared.cancelTerminalPayment(appointmentId: chargeId)
         }
     }
 
@@ -559,7 +636,7 @@ struct TerminalChargeView: View {
     private func cancelThenResetToReady() async {
         if payment?.status == .failed || payment?.status == .pending || payment?.status == .processing {
             await performOperation(showResult: false) {
-                try await AdminAPIClient.shared.cancelTerminalPayment(appointmentId: appointment.id)
+                try await AdminAPIClient.shared.cancelTerminalPayment(appointmentId: chargeId)
             }
         }
         showAttemptResult = false
@@ -587,7 +664,7 @@ struct TerminalChargeView: View {
                result.response.error == "retry_required",
                result.response.payment?.isRetryableTerminalPayment == true {
                 result = try await AdminAPIClient.shared.retryTerminalPayment(
-                    appointmentId: appointment.id
+                    appointmentId: chargeId
                 )
                 apply(result.response)
             }
@@ -611,7 +688,7 @@ struct TerminalChargeView: View {
         reader = response.reader ?? reader
         if let updated = response.payment {
             payment = updated
-            let ids = updated.status == .succeeded ? relatedIds : [appointment.id]
+            let ids = updated.status == .succeeded ? relatedIds : [chargeId]
             onPaymentChanged(updated, ids)
         }
     }
@@ -622,7 +699,7 @@ struct TerminalChargeView: View {
                 try await Task.sleep(for: .milliseconds(1500))
                 guard !Task.isCancelled else { return }
                 let result = try await AdminAPIClient.shared.fetchTerminalPayment(
-                    appointmentId: appointment.id
+                    appointmentId: chargeId
                 )
                 apply(result.response)
                 if let message = result.response.message, !result.succeeded {

@@ -69,6 +69,7 @@ struct TimeGridAppointmentBlock: View {
                     .lineLimit(2)
                     .minimumScaleFactor(0.8)
                 settlementIcon
+                ExtraCountBadge(count: appointment.extraCount, size: .md)
             }
 
             Text(BookingDisplay.CalendarFormatting.formattedTimeRange(for: appointment))
@@ -88,6 +89,7 @@ struct TimeGridAppointmentBlock: View {
                     .lineLimit(3)
                     .minimumScaleFactor(0.65)
                 settlementIcon
+                ExtraCountBadge(count: appointment.extraCount, size: .sm)
             }
 
             Text(BookingDisplay.CalendarFormatting.formattedChipTime(for: appointment))

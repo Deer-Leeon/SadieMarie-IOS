@@ -135,7 +135,9 @@ struct DayColumnBookingCard: View {
                 .trailing,
                 peekingUnder
                     ? 0
-                    : (appointment.terminalPayment?.isSettled == true || hasNoShowFlag
+                    : (appointment.terminalPayment?.isSettled == true
+                        || hasNoShowFlag
+                        || appointment.extraCount > 0
                         ? (isWeekStyle ? 16 : (denseColumns ? 14 : 20))
                         : 0)
             )
@@ -147,6 +149,10 @@ struct DayColumnBookingCard: View {
             HStack(spacing: 2) {
                 SettlementCheckMarker(
                     payment: appointment.terminalPayment,
+                    size: isWeekStyle || denseColumns ? .sm : .md
+                )
+                ExtraCountBadge(
+                    count: appointment.extraCount,
                     size: isWeekStyle || denseColumns ? .sm : .md
                 )
                 if hasNoShowFlag {

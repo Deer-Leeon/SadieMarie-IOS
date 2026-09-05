@@ -1181,7 +1181,8 @@ struct ClientProfileView: View {
                 } else {
                     BookingsDayGroupedList(
                         appointments: upcomingHistory,
-                        onSelectAppointment: { selectedAppointment = $0 }
+                        onSelectAppointment: { selectedAppointment = $0 },
+                        showsNestedExtras: true
                     )
                 }
             }
