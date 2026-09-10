@@ -82,6 +82,21 @@ final class SadieMarieTests: XCTestCase {
         )
     }
 
+    func testQuarterHourSlotsRunEarliestToLatest() {
+        let reference = Date()
+        let slots = AvailabilityTimeFormat.quarterHourSlots(on: reference)
+        XCTAssertEqual(slots.count, 72)
+        XCTAssertEqual(AvailabilityTimeFormat.hhmm(from: slots[0]), "05:00")
+        XCTAssertEqual(AvailabilityTimeFormat.hhmm(from: slots[slots.count - 1]), "22:45")
+        for index in 1..<slots.count {
+            XCTAssertLessThan(
+                slots[index - 1],
+                slots[index],
+                "Time menu must list later times below earlier ones"
+            )
+        }
+    }
+
     func testDecodeFlatAvailabilityResponseWithScheduleId() throws {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
