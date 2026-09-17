@@ -20,6 +20,10 @@ final class BookingsViewModel {
     private(set) var errorMessage: String?
     private let inFlightLoad = InFlightLoad()
 
+    /// Keep the launch logo up while a sleeping backend wakes.
+    private static let firstLoadRetryBudget: TimeInterval = 8
+    private static let firstLoadBackoff: [TimeInterval] = [0.4, 0.8, 1.2, 1.6, 2.0]
+
     init() {
         seedScheduleFromSnapshotIfNeeded()
     }
@@ -37,23 +41,73 @@ final class BookingsViewModel {
     /// - Parameter showLoading: Full-screen overlay. Live sync (push / poll /
     ///   foreground) passes `false` so the calendar does not flash empty.
     func load(showLoading: Bool = true) async {
-        if !hasLoaded {
+        let isInitial = !hasLoaded
+        if isInitial {
             await SessionKeepAlive.waitUntilReadyForAPI()
         }
-        let blockUI = showLoading && !hasLoaded
+        let blockUI = showLoading && isInitial
         if blockUI {
             isLoading = true
             errorMessage = nil
         }
 
         await inFlightLoad.run { [weak self] in
-            await self?.performLoad()
+            await self?.runLoad(isInitial: isInitial)
         }
         isLoading = false
-        hasLoaded = true
     }
 
-    private func performLoad() async {
+    private func runLoad(isInitial: Bool) async {
+        if !isInitial || hasLoaded {
+            _ = await performLoad(publishError: true)
+            return
+        }
+
+        let deadline = Date().addingTimeInterval(Self.firstLoadRetryBudget)
+        var backoffIndex = 0
+        var lastError: Error?
+
+        while !Task.isCancelled {
+            let outcome = await performLoad(publishError: false)
+            switch outcome {
+            case .success:
+                errorMessage = nil
+                hasLoaded = true
+                return
+            case .cancelled:
+                return
+            case .failed(let error):
+                lastError = error
+                let retryable = Self.isRetryableColdStart(error)
+                let remaining = deadline.timeIntervalSinceNow
+                if !retryable || remaining <= 0 {
+                    publishInitialLoadFailure(error)
+                    hasLoaded = true
+                    return
+                }
+                let delay = Self.firstLoadBackoff[min(backoffIndex, Self.firstLoadBackoff.count - 1)]
+                backoffIndex += 1
+                let sleepFor = min(delay, remaining)
+                AppLogger.syncInfo(
+                    "Initial bookings load retrying in \(String(format: "%.1f", sleepFor))s (\(error.localizedDescription))."
+                )
+                try? await Task.sleep(for: .seconds(sleepFor))
+            }
+        }
+
+        if let lastError {
+            publishInitialLoadFailure(lastError)
+            hasLoaded = true
+        }
+    }
+
+    private enum LoadOutcome {
+        case success
+        case cancelled
+        case failed(Error)
+    }
+
+    private func performLoad(publishError: Bool) async -> LoadOutcome {
         seedScheduleFromSnapshotIfNeeded()
         async let scheduleResponse = fetchAvailabilityIgnoringErrors()
 
@@ -70,21 +124,44 @@ final class BookingsViewModel {
             }
             errorMessage = nil
             AppLogger.syncInfo("Loaded \(appointments.count) appointments, \(blocks.count) time blocks.")
+            applySchedule(await scheduleResponse)
+            return .success
         } catch is CancellationError {
-            return
+            return .cancelled
         } catch let error as AdminAPIError {
             AppLogger.syncError("fetchBookings failed: \(error.localizedDescription)")
-            if appointments.isEmpty {
+            if publishError, appointments.isEmpty {
                 errorMessage = message(for: error)
             }
+            applySchedule(await scheduleResponse)
+            return .failed(error)
         } catch {
             AppLogger.syncError("fetchBookings failed: \(error.localizedDescription)")
-            if appointments.isEmpty {
+            if publishError, appointments.isEmpty {
                 errorMessage = error.localizedDescription
             }
+            applySchedule(await scheduleResponse)
+            return .failed(error)
         }
+    }
 
-        applySchedule(await scheduleResponse)
+    private func publishInitialLoadFailure(_ error: Error) {
+        guard appointments.isEmpty else {
+            errorMessage = nil
+            return
+        }
+        if let apiError = error as? AdminAPIError {
+            errorMessage = message(for: apiError)
+        } else {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private static func isRetryableColdStart(_ error: Error) -> Bool {
+        if let apiError = error as? AdminAPIError {
+            return apiError.isRetryableColdStart
+        }
+        return true
     }
 
     private func seedScheduleFromSnapshotIfNeeded() {
@@ -215,6 +292,13 @@ final class BookingsViewModel {
         let ids = Set(appointmentIds)
         appointments = appointments.map { appointment in
             appointment.withPatchedPayments(ids: Array(ids), payment: payment)
+        }
+    }
+
+    /// Patch a visit after extras / chair-length edits so the grid grows immediately.
+    func replaceAppointment(_ visit: Appointment) {
+        appointments = appointments.map { appointment in
+            appointment.id == visit.id ? appointment.mergingVisit(visit) : appointment
         }
     }
 

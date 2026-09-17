@@ -36,16 +36,21 @@ enum BookingDisplay {
         let baseLower = base.lowercased()
         let isBare = ["classic", "hybrid", "volume"].contains(baseLower)
 
-        guard isBare,
-              let startISO = apt.bookingTime,
-              let endISO = apt.endTime,
-              let start = iso8601Date(from: startISO),
-              let end = iso8601Date(from: endISO)
-        else {
-            return base
+        guard isBare else { return base }
+
+        let mins: Int?
+        if let catalogue = apt.catalogueDurationMins, catalogue > 0 {
+            mins = catalogue
+        } else if let startISO = apt.bookingTime,
+                  let endISO = apt.endTime,
+                  let start = iso8601Date(from: startISO),
+                  let end = iso8601Date(from: endISO) {
+            mins = Int(round(end.timeIntervalSince(start) / 60))
+        } else {
+            mins = nil
         }
 
-        let mins = Int(round(end.timeIntervalSince(start) / 60))
+        guard let mins else { return base }
         switch mins {
         case 120: return "\(base) 2 Week Fill"
         case 150: return "\(base) 3 Week Fill"
@@ -60,6 +65,90 @@ enum BookingDisplay {
         let accent: Color
         let text: Color
         let textMuted: Color
+    }
+
+    /// Parent + extra colours as a vertical fade (web `visitBlockBackground`).
+    enum VisitBlockPaint {
+        case solid(Color)
+        case gradient(LinearGradient)
+
+        var shapeStyle: AnyShapeStyle {
+            switch self {
+            case .solid(let color): AnyShapeStyle(color)
+            case .gradient(let gradient): AnyShapeStyle(gradient)
+            }
+        }
+    }
+
+    static func visitBlockPaint(for apt: Appointment) -> VisitBlockPaint? {
+        guard let parent = serviceColor(for: apt) else { return nil }
+        let extras = apt.extras
+        if extras.isEmpty {
+            return .solid(parent.accent)
+        }
+
+        struct Segment {
+            let color: Color
+            let hex: String
+            let weight: Double
+        }
+
+        func catalogueWeight(_ mins: Int?) -> Double {
+            if let mins, mins > 0 { return Double(mins) }
+            return 60
+        }
+
+        var segments: [Segment] = [
+            Segment(
+                color: parent.accent,
+                hex: (apt.serviceColor ?? "").uppercased(),
+                weight: catalogueWeight(apt.catalogueDurationMins)
+            )
+        ]
+        for extra in extras {
+            let color = serviceColor(for: extra)
+            segments.append(
+                Segment(
+                    color: color?.accent ?? parent.accent,
+                    hex: (extra.serviceColor ?? apt.serviceColor ?? "").uppercased(),
+                    weight: catalogueWeight(extra.catalogueDurationMins)
+                )
+            )
+        }
+
+        let unique = Set(segments.map(\.hex).filter { !$0.isEmpty })
+        if unique.count <= 1 {
+            return .solid(segments[0].color)
+        }
+
+        let totalWeight = segments.reduce(0) { $0 + $1.weight }
+        let blendPct = min(8, max(3, (6 / max(totalWeight, 1)) * 100))
+        var stops: [Gradient.Stop] = []
+        var cursor = 0.0
+        for index in segments.indices {
+            let seg = segments[index]
+            let start = (cursor / totalWeight) * 100
+            let end = ((cursor + seg.weight) / totalWeight) * 100
+            if index + 1 >= segments.count {
+                stops.append(Gradient.Stop(color: seg.color, location: start / 100))
+                stops.append(Gradient.Stop(color: seg.color, location: 1))
+            } else {
+                let next = segments[index + 1]
+                let half = min(blendPct, (end - start) / 2, (next.weight / totalWeight) * 100 / 2)
+                stops.append(Gradient.Stop(color: seg.color, location: start / 100))
+                stops.append(Gradient.Stop(color: seg.color, location: max(start, end - half) / 100))
+                stops.append(Gradient.Stop(color: next.color, location: min(100, end + half) / 100))
+            }
+            cursor += seg.weight
+        }
+
+        let clamped = stops
+            .map { Gradient.Stop(color: $0.color, location: min(1, max(0, $0.location))) }
+            .sorted { $0.location < $1.location }
+
+        return .gradient(
+            LinearGradient(stops: clamped, startPoint: .top, endPoint: .bottom)
+        )
     }
 
     static func serviceColor(for apt: Appointment) -> ServiceColor? {

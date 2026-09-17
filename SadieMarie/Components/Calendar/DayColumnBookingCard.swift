@@ -25,14 +25,17 @@ struct DayColumnBookingCard: View {
         BookingDisplay.usesServiceColorBackground(appointment)
     }
 
-    private var background: Color {
+    private var fillStyle: AnyShapeStyle {
+        if !isNoShow, let paint = BookingDisplay.visitBlockPaint(for: appointment) {
+            return paint.shapeStyle
+        }
         if usesServiceBackground, let colors = BookingDisplay.serviceColor(for: appointment) {
-            return colors.accent
+            return AnyShapeStyle(colors.accent)
         }
         if BookingDisplay.isPending(appointment) {
-            return AdminTheme.pendingBackground
+            return AnyShapeStyle(AdminTheme.pendingBackground)
         }
-        return AdminTheme.cardFill
+        return AnyShapeStyle(AdminTheme.cardFill)
     }
 
     /// Soft edge only for uncolored / pending rows. Service fills are solid like web.
@@ -49,7 +52,7 @@ struct DayColumnBookingCard: View {
 
     private var cornerRadius: CGFloat { isWeekStyle ? 2 : 4 }
 
-    private var peekingUnder: Bool { isOverlapping && overlapCol == 0 }
+    private var peekingUnder: Bool { compactOverlap && overlapCol == 0 }
 
     /// Enough vertical room for name + a second detail line.
     private var canStackTwoLines: Bool {
@@ -114,7 +117,7 @@ struct DayColumnBookingCard: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: cornerRadius)
-                .fill(background)
+                .fill(fillStyle)
                 .overlay {
                     if let border {
                         RoundedRectangle(cornerRadius: cornerRadius)

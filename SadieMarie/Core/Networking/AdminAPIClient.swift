@@ -44,10 +44,10 @@ enum AdminAPIError: LocalizedError {
         case .notFound:
             return "The requested resource was not found."
         case .server(let status, let body):
-            if let body, !body.isEmpty {
-                return "Server error (\(status)): \(body)"
-            }
-            return "Server error (\(status))."
+            return AdminAPIResponseParser.userFacingServerMessage(
+                status: status,
+                body: body
+            )
         case .transport(let urlError):
             return urlError.localizedDescription
         case .decoding:
@@ -64,6 +64,21 @@ enum AdminAPIError: LocalizedError {
     var isNonRetryableAuthFailure: Bool {
         if case .forbidden = self { return true }
         return false
+    }
+
+    /// Neon / Vercel cold starts often fail once as transport or 5xx, then succeed.
+    var isRetryableColdStart: Bool {
+        switch self {
+        case .transport:
+            return true
+        case .server(let status, _):
+            return status == 408 || status == 429 || (500...504).contains(status)
+        case .unknown:
+            return true
+        case .unauthorized, .noActiveSession, .forbidden, .notFound,
+             .decoding, .invalidEndpoint, .invalidResponse:
+            return false
+        }
     }
 
     /// Clerk can throw `authentication_invalid` for a split second after

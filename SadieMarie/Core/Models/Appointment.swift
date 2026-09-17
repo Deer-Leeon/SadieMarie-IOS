@@ -38,6 +38,10 @@ struct Appointment: Identifiable, Hashable, Sendable {
     let extras: [Appointment]
     /// Count of nested extras; used for the calendar +N badge.
     let extraCount: Int
+    /// Admin-set total chair minutes from `bookingTime`. Nil uses `endTime`.
+    let chairDurationMins: Int?
+    /// Catalogue service length; fill labels and gradient weights.
+    let catalogueDurationMins: Int?
 
     nonisolated init(
         id: String,
@@ -60,7 +64,9 @@ struct Appointment: Identifiable, Hashable, Sendable {
         terminalPayment: AppointmentPaymentSummary? = nil,
         attachedToAppointmentId: String? = nil,
         extras: [Appointment] = [],
-        extraCount: Int = 0
+        extraCount: Int = 0,
+        chairDurationMins: Int? = nil,
+        catalogueDurationMins: Int? = nil
     ) {
         self.id = id
         self.calUid = calUid
@@ -83,6 +89,8 @@ struct Appointment: Identifiable, Hashable, Sendable {
         self.attachedToAppointmentId = attachedToAppointmentId
         self.extras = extras
         self.extraCount = extraCount > 0 ? extraCount : extras.count
+        self.chairDurationMins = chairDurationMins
+        self.catalogueDurationMins = catalogueDurationMins
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -107,6 +115,8 @@ struct Appointment: Identifiable, Hashable, Sendable {
         case attachedToAppointmentId
         case extras
         case extraCount
+        case chairDurationMins
+        case catalogueDurationMins
     }
 }
 
@@ -140,7 +150,9 @@ extension Appointment: Decodable {
                 forKey: .attachedToAppointmentId
             ),
             extras: try container.decodeIfPresent([Appointment].self, forKey: .extras) ?? [],
-            extraCount: try container.decodeIfPresent(Int.self, forKey: .extraCount) ?? 0
+            extraCount: try container.decodeIfPresent(Int.self, forKey: .extraCount) ?? 0,
+            chairDurationMins: try container.decodeIfPresent(Int.self, forKey: .chairDurationMins),
+            catalogueDurationMins: try container.decodeIfPresent(Int.self, forKey: .catalogueDurationMins)
         )
     }
 }
@@ -173,6 +185,8 @@ extension Appointment: Encodable {
         if extraCount > 0 {
             try container.encode(extraCount, forKey: .extraCount)
         }
+        try container.encodeIfPresent(chairDurationMins, forKey: .chairDurationMins)
+        try container.encodeIfPresent(catalogueDurationMins, forKey: .catalogueDurationMins)
     }
 }
 
@@ -219,7 +233,9 @@ extension Appointment {
             terminalPayment: terminalPayment,
             attachedToAppointmentId: attachedToAppointmentId,
             extras: extras,
-            extraCount: extraCount
+            extraCount: extraCount,
+            chairDurationMins: chairDurationMins,
+            catalogueDurationMins: catalogueDurationMins
         )
     }
 
@@ -245,7 +261,9 @@ extension Appointment {
             terminalPayment: payment,
             attachedToAppointmentId: attachedToAppointmentId,
             extras: extras,
-            extraCount: extraCount
+            extraCount: extraCount,
+            chairDurationMins: chairDurationMins,
+            catalogueDurationMins: catalogueDurationMins
         )
     }
 
@@ -271,7 +289,38 @@ extension Appointment {
             terminalPayment: terminalPayment,
             attachedToAppointmentId: attachedToAppointmentId,
             extras: extras,
-            extraCount: extras.count
+            extraCount: extras.count,
+            chairDurationMins: chairDurationMins,
+            catalogueDurationMins: catalogueDurationMins
+        )
+    }
+
+    /// Merge times and nested extras from a duration / add-on API response.
+    func mergingVisit(_ visit: Appointment) -> Appointment {
+        Appointment(
+            id: visit.id,
+            calUid: visit.calUid,
+            clientFirstName: visit.clientFirstName,
+            clientLastName: visit.clientLastName,
+            bookingTime: visit.bookingTime,
+            endTime: visit.endTime,
+            serviceName: visit.serviceName,
+            status: visit.status,
+            clientPhone: visit.clientPhone,
+            clientEmail: visit.clientEmail,
+            servicePrice: visit.servicePrice,
+            serviceDescription: visit.serviceDescription,
+            serviceSlug: visit.serviceSlug,
+            serviceColor: visit.serviceColor,
+            stripeCustomerId: visit.stripeCustomerId,
+            bookingNotes: visit.bookingNotes,
+            clientNoShowFlag: visit.clientNoShowFlag,
+            terminalPayment: visit.terminalPayment ?? terminalPayment,
+            attachedToAppointmentId: visit.attachedToAppointmentId,
+            extras: visit.extras,
+            extraCount: visit.extraCount,
+            chairDurationMins: visit.chairDurationMins,
+            catalogueDurationMins: visit.catalogueDurationMins ?? catalogueDurationMins
         )
     }
 

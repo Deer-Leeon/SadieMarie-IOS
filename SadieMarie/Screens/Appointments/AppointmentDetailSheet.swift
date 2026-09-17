@@ -7,6 +7,7 @@ struct AppointmentDetailSheet: View {
     var onDismiss: () -> Void
     var onMutated: () -> Void
     var onPaymentMutated: (AppointmentPaymentSummary?, [String]) -> Void
+    var onVisitUpdated: (Appointment) -> Void
 
     @State private var statusAction: StatusAction?
     @State private var statusError: String?
@@ -14,11 +15,13 @@ struct AppointmentDetailSheet: View {
     @State private var showStatusSuccessAlert = false
     @State private var showNoShowConfirm = false
     @State private var showCancelConfirm = false
+    @State private var cancelSendSms = true
     @State private var showReschedule = false
     @State private var clientProfileEntry: ClientProfileEntry?
     /// Live settlement snapshot so Comp/Cash/Charge update the open sheet
     /// immediately without relying on a close/reopen cycle.
     @State private var livePayment: AppointmentPaymentSummary?
+    @State private var liveVisit: Appointment
     @State private var liveExtras: [Appointment]
     @State private var extraBusy = false
     @State private var extraError: String?
@@ -29,19 +32,22 @@ struct AppointmentDetailSheet: View {
         knownAppointments: [Appointment] = [],
         onDismiss: @escaping () -> Void,
         onMutated: @escaping () -> Void,
-        onPaymentMutated: @escaping (AppointmentPaymentSummary?, [String]) -> Void = { _, _ in }
+        onPaymentMutated: @escaping (AppointmentPaymentSummary?, [String]) -> Void = { _, _ in },
+        onVisitUpdated: @escaping (Appointment) -> Void = { _ in }
     ) {
         self.appointment = appointment
         self.knownAppointments = knownAppointments
         self.onDismiss = onDismiss
         self.onMutated = onMutated
         self.onPaymentMutated = onPaymentMutated
+        self.onVisitUpdated = onVisitUpdated
         _livePayment = State(initialValue: appointment.terminalPayment)
+        _liveVisit = State(initialValue: appointment)
         _liveExtras = State(initialValue: appointment.extras)
     }
 
     private var liveAppointment: Appointment {
-        appointment
+        liveVisit
             .withTerminalPayment(livePayment)
             .withExtras(liveExtras)
     }
@@ -102,12 +108,17 @@ struct AppointmentDetailSheet: View {
                     if !isReadOnly || !liveExtras.isEmpty {
                         VisitExtrasCard(
                             extras: liveExtras,
-                            canEdit: !isReadOnly && BookingDisplay.isConfirmed(appointment),
+                            chairMins: ChairDuration.displayedMinutes(for: liveAppointment),
+                            catalogueMins: liveAppointment.catalogueDurationMins,
+                            canEdit: !isReadOnly && BookingDisplay.isConfirmed(liveAppointment),
                             isBusy: extraBusy || isBusy,
                             errorMessage: extraError,
                             onAdd: { showExtraPicker = true },
                             onRemove: { extraId in
                                 Task { await removeExtra(extraId) }
+                            },
+                            onStepDuration: { delta in
+                                Task { await stepVisitLength(delta) }
                             }
                         )
                     }
@@ -206,18 +217,30 @@ struct AppointmentDetailSheet: View {
                 Text("No vaulted card or service price on file. Marking no-show will flag them and increase their no-show count. A fee cannot be charged automatically.")
             }
         }
-        .confirmationDialog(
-            "Cancel appointment?",
-            isPresented: $showCancelConfirm,
-            titleVisibility: .visible
-        ) {
-            Button("Cancel appointment", role: .destructive) {
-                Task { await performStatusChange(.cancel) }
+        .overlay {
+            if showCancelConfirm {
+                CancelAppointmentConfirmOverlay(
+                    clientName: BookingDisplay.clientDisplayName(
+                        first: appointment.clientFirstName,
+                        last: appointment.clientLastName
+                    ),
+                    bookingHasEnded: !BookingDisplay.isUpcoming(appointment),
+                    sendSms: $cancelSendSms,
+                    busy: statusAction == .cancel,
+                    onDismiss: {
+                        if statusAction != .cancel {
+                            showCancelConfirm = false
+                        }
+                    },
+                    onConfirm: {
+                        Task { await performStatusChange(.cancel, sendSms: cancelSendSms) }
+                    }
+                )
+                .ignoresSafeArea()
+                .transition(.opacity)
             }
-            Button("Keep appointment", role: .cancel) {}
-        } message: {
-            Text("The client will be notified and the booking will be removed from your calendar.")
         }
+        .animation(.easeInOut(duration: 0.2), value: showCancelConfirm)
         .alert(
             "No-show fee charged",
             isPresented: $showStatusSuccessAlert
@@ -291,7 +314,7 @@ struct AppointmentDetailSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 sectionLabel("Date & Time", icon: "calendar")
 
-                Text(BookingDisplay.formattedDetailDate(for: appointment))
+                Text(BookingDisplay.formattedDetailDate(for: liveAppointment))
                     .font(AdminTheme.fontAdminSerif(size: 18))
                     .foregroundStyle(AdminTheme.stone900)
 
@@ -299,7 +322,7 @@ struct AppointmentDetailSheet: View {
                     Image(systemName: "clock")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(AdminTheme.stone500)
-                    Text(BookingDisplay.formattedDetailTimeRange(for: appointment))
+                    Text(BookingDisplay.formattedDetailTimeRange(for: liveAppointment))
                         .font(AdminTheme.fontAdminSans(size: 15))
                         .foregroundStyle(AdminTheme.stone700)
                 }
@@ -315,7 +338,7 @@ struct AppointmentDetailSheet: View {
 
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(BookingDisplay.appointmentServiceLabel(appointment))
+                        Text(BookingDisplay.appointmentServiceLabel(liveAppointment))
                             .font(AdminTheme.fontAdminSerif(size: 18))
                             .foregroundStyle(AdminTheme.stone900)
 
@@ -405,6 +428,7 @@ struct AppointmentDetailSheet: View {
                     style: .destructive,
                     disabled: isBusy
                 ) {
+                    cancelSendSms = true
                     showCancelConfirm = true
                 }
             }
@@ -466,9 +490,19 @@ struct AppointmentDetailSheet: View {
         ids: [String]
     ) {
         let patched = liveAppointment.withPatchedPayments(ids: ids, payment: payment)
+        liveVisit = patched
         livePayment = patched.terminalPayment
         liveExtras = patched.extras
         onPaymentMutated(payment, ids)
+    }
+
+    private func applyVisit(_ visit: Appointment) {
+        liveVisit = liveVisit.mergingVisit(visit)
+        liveExtras = visit.extras
+        if let payment = visit.terminalPayment {
+            livePayment = payment
+        }
+        onVisitUpdated(liveAppointment)
     }
 
     private func addExtra(_ service: ManualBookingServiceOption) async {
@@ -477,12 +511,17 @@ struct AppointmentDetailSheet: View {
         extraError = nil
         defer { extraBusy = false }
         do {
-            let extra = try await AdminAPIClient.shared.addAppointmentExtra(
+            let response = try await AdminAPIClient.shared.addAppointmentExtra(
                 appointmentId: appointment.id,
                 eventTypeId: service.eventTypeId
             )
-            liveExtras.append(extra)
-            onMutated()
+            if let visit = response.appointment {
+                applyVisit(visit)
+            } else if let extra = response.extra {
+                liveExtras.append(extra)
+                liveVisit = liveVisit.withExtras(liveExtras)
+                onVisitUpdated(liveAppointment)
+            }
         } catch {
             extraError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
@@ -494,12 +533,35 @@ struct AppointmentDetailSheet: View {
         extraError = nil
         defer { extraBusy = false }
         do {
-            try await AdminAPIClient.shared.deleteAppointmentExtra(
+            let response = try await AdminAPIClient.shared.deleteAppointmentExtra(
                 appointmentId: appointment.id,
                 extraId: extraId
             )
-            liveExtras.removeAll { $0.id == extraId }
-            onMutated()
+            if let visit = response.appointment {
+                applyVisit(visit)
+            } else {
+                liveExtras.removeAll { $0.id == extraId }
+                liveVisit = liveVisit.withExtras(liveExtras)
+                onVisitUpdated(liveAppointment)
+            }
+        } catch {
+            extraError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func stepVisitLength(_ deltaMins: Int) async {
+        guard !extraBusy, !isReadOnly else { return }
+        let next = ChairDuration.displayedMinutes(for: liveAppointment) + deltaMins
+        guard next >= ChairDuration.minMinutes, next <= ChairDuration.maxMinutes else { return }
+        extraBusy = true
+        extraError = nil
+        defer { extraBusy = false }
+        do {
+            let visit = try await AdminAPIClient.shared.patchAppointmentDuration(
+                appointmentId: appointment.id,
+                durationMins: next
+            )
+            applyVisit(visit)
         } catch {
             extraError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
@@ -526,7 +588,7 @@ struct AppointmentDetailSheet: View {
         }
     }
 
-    private func performStatusChange(_ action: StatusAction) async {
+    private func performStatusChange(_ action: StatusAction, sendSms: Bool = true) async {
         guard !isReadOnly else { return }
 
         statusAction = action
@@ -551,12 +613,23 @@ struct AppointmentDetailSheet: View {
             let response = try await AdminAPIClient.shared.updateAppointmentStatus(
                 id: appointment.id,
                 status: status,
-                chargeNoShow: chargeNoShow
+                chargeNoShow: chargeNoShow,
+                sendSms: action == .cancel ? sendSms : nil
             )
             if let calError = response.calCancelError, !calError.isEmpty {
-                statusError = "Canceled locally, but Cal.com reported: \(calError)"
-                onMutated()
-                return
+                let expectedPastReject =
+                    action == .cancel
+                    && !BookingDisplay.isUpcoming(appointment)
+                    && calError.range(
+                        of: "already ended",
+                        options: .caseInsensitive
+                    ) != nil
+                if !expectedPastReject {
+                    statusError = "Canceled locally, but Cal.com reported: \(calError)"
+                    showCancelConfirm = false
+                    onMutated()
+                    return
+                }
             }
             if action == .noShowCharged,
                let cents = response.noShowCharge?.amountCents,
@@ -569,9 +642,11 @@ struct AppointmentDetailSheet: View {
                 showStatusSuccessAlert = true
                 return
             }
+            showCancelConfirm = false
             onMutated()
             onDismiss()
         } catch {
+            showCancelConfirm = false
             statusError = Self.friendlyStatusError(error)
         }
     }
@@ -617,6 +692,202 @@ struct AppointmentDetailSheet: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.semanticRed.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: AdminTheme.Radius.card))
+    }
+}
+
+/// Card overlay for admin cancel (confirmationDialog cannot host a toggle).
+private struct CancelAppointmentConfirmOverlay: View {
+    let clientName: String
+    var bookingHasEnded: Bool
+    @Binding var sendSms: Bool
+    var busy: Bool
+    var onDismiss: () -> Void
+    var onConfirm: () -> Void
+
+    private var displayName: String {
+        clientName.isEmpty ? "this client" : clientName
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let maxWidth = min(geo.size.width - 40, 420)
+
+            ZStack {
+                ZStack {
+                    AdminTheme.cream.opacity(0.72)
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                        .environment(\.colorScheme, .light)
+                }
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if !busy { onDismiss() }
+                }
+                .accessibilityLabel("Dismiss cancel")
+
+                VStack(spacing: 0) {
+                    header
+                    Rectangle()
+                        .fill(AdminTheme.stone200)
+                        .frame(height: 1)
+                    bodyCopy
+                    Rectangle()
+                        .fill(AdminTheme.stone200)
+                        .frame(height: 1)
+                    footer
+                }
+                .frame(width: maxWidth)
+                .background(AdminTheme.cardFill)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Cancel booking")
+                    .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
+                    .tracking(1.8)
+                    .foregroundStyle(AdminTheme.stone500)
+                    .textCase(.uppercase)
+                Text("Cancel this appointment?")
+                    .font(AdminTheme.fontAdminSerif(size: 22))
+                    .foregroundStyle(AdminTheme.stone900)
+            }
+            Spacer(minLength: 8)
+            Button {
+                if !busy { onDismiss() }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(AdminTheme.stone700)
+                    .frame(width: 28, height: 28)
+                    .background(AdminTheme.stone100)
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(busy)
+            .accessibilityLabel("Close")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    private var bodyCopy: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Group {
+                if bookingHasEnded {
+                    Text("This booking for \(displayName) has already ended.")
+                } else {
+                    Text("This will cancel the booking for \(displayName).")
+                }
+            }
+            .font(AdminTheme.fontAdminSans(size: 14))
+            .foregroundStyle(AdminTheme.stone600)
+            .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                numberedStep(1, "It comes off your dashboard.")
+                numberedStep(
+                    2,
+                    bookingHasEnded
+                        ? "Cal.com keeps it as a completed visit. They don’t allow cancelling a booking that has already ended."
+                        : "Cal.com cancels the booking, including their cancellation email to the client."
+                )
+                numberedStep(
+                    3,
+                    "A studio text still goes out unless you uncheck below."
+                )
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(AdminTheme.stone200, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+            if bookingHasEnded {
+                Text("If they didn’t come, go back and use No-show instead.")
+                    .font(AdminTheme.fontAdminSans(size: 12))
+                    .foregroundStyle(AdminTheme.stone500)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            AdminSendSmsToggle(isOn: $sendSms, disabled: busy)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+    }
+
+    private func numberedStep(_ number: Int, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("\(number)")
+                .font(AdminTheme.fontAdminSans(size: 11, weight: .semibold))
+                .foregroundStyle(AdminTheme.stone600)
+                .frame(width: 20, height: 20)
+                .background(AdminTheme.stone100)
+                .clipShape(Circle())
+            Text(text)
+                .font(AdminTheme.fontAdminSans(size: 14))
+                .foregroundStyle(AdminTheme.stone700)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 8) {
+            Spacer()
+            Button {
+                if !busy { onDismiss() }
+            } label: {
+                Text("Go back")
+                    .font(AdminTheme.fontAdminSans(size: 11, weight: .medium))
+                    .tracking(1.2)
+                    .textCase(.uppercase)
+                    .foregroundStyle(AdminTheme.stone600)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color.white)
+                    .overlay(
+                        Capsule().stroke(AdminTheme.stone200, lineWidth: 1)
+                    )
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(busy)
+
+            Button {
+                if !busy { onConfirm() }
+            } label: {
+                HStack(spacing: 6) {
+                    if busy {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(.white)
+                    }
+                    Text(busy ? "Canceling" : "Confirm cancel")
+                }
+                .font(AdminTheme.fontAdminSans(size: 11, weight: .medium))
+                .tracking(1.2)
+                .textCase(.uppercase)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(AdminTheme.rose600)
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(busy)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 }
 

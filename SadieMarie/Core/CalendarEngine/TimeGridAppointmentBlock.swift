@@ -9,14 +9,18 @@ struct TimeGridAppointmentBlock: View {
         BookingDisplay.usesServiceColorBackground(appointment)
     }
 
-    private var background: Color {
+    private var fillStyle: AnyShapeStyle {
+        if !BookingDisplay.isNoShow(appointment),
+           let paint = BookingDisplay.visitBlockPaint(for: appointment) {
+            return paint.shapeStyle
+        }
         if usesServiceBackground, let colors = BookingDisplay.serviceColor(for: appointment) {
-            return colors.accent
+            return AnyShapeStyle(colors.accent)
         }
         if BookingDisplay.isPending(appointment) {
-            return AdminTheme.pendingBackground
+            return AnyShapeStyle(AdminTheme.pendingBackground)
         }
-        return AdminTheme.cardFill
+        return AnyShapeStyle(AdminTheme.cardFill)
     }
 
     private var border: Color {
@@ -51,7 +55,7 @@ struct TimeGridAppointmentBlock: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(.horizontal, isWeekStyle ? 3 : 5)
         .padding(.vertical, isWeekStyle ? 2 : 4)
-        .background(background)
+        .background(fillStyle)
         .overlay(
             RoundedRectangle(cornerRadius: 4)
                 .stroke(border, lineWidth: 0.75)

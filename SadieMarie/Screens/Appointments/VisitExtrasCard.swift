@@ -1,17 +1,75 @@
 import SwiftUI
 
-/// Extras list + Add extra on the appointment detail sheet.
+/// Visit length stepper + extras list on the appointment detail sheet.
 struct VisitExtrasCard: View {
     let extras: [Appointment]
+    var chairMins: Int
+    var catalogueMins: Int?
     var canEdit: Bool
     var isBusy: Bool
     var errorMessage: String?
     var onAdd: () -> Void
     var onRemove: (String) -> Void
+    var onStepDuration: (Int) -> Void
+
+    private var canShorten: Bool {
+        chairMins - ChairDuration.stepMinutes >= ChairDuration.minMinutes
+    }
+
+    private var canLengthen: Bool {
+        chairMins + ChairDuration.stepMinutes <= ChairDuration.maxMinutes
+    }
+
+    private var customNote: String {
+        if let catalogueMins, catalogueMins != chairMins {
+            return "Catalogue default \(ChairDuration.formatLabel(catalogueMins))."
+        }
+        if extras.isEmpty == false {
+            return "Grows with extras; shorten if you will finish early."
+        }
+        return "Shorten or extend the chair block. Later public slots stay free when you cut time."
+    }
 
     var body: some View {
         AdminDetailCard {
             VStack(alignment: .leading, spacing: 12) {
+                Text("Visit length")
+                    .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
+                    .tracking(2.2)
+                    .textCase(.uppercase)
+                    .foregroundStyle(AdminTheme.stone500)
+
+                HStack(spacing: 12) {
+                    if canEdit {
+                        stepButton(
+                            systemImage: "minus",
+                            enabled: canShorten,
+                            label: "Shorten visit by \(ChairDuration.stepMinutes) minutes"
+                        ) {
+                            onStepDuration(-ChairDuration.stepMinutes)
+                        }
+                    }
+
+                    Text(ChairDuration.formatLabel(chairMins))
+                        .font(AdminTheme.fontAdminSerif(size: 18))
+                        .foregroundStyle(AdminTheme.stone900)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if canEdit {
+                        stepButton(
+                            systemImage: "plus",
+                            enabled: canLengthen,
+                            label: "Lengthen visit by \(ChairDuration.stepMinutes) minutes"
+                        ) {
+                            onStepDuration(ChairDuration.stepMinutes)
+                        }
+                    }
+                }
+
+                Text(customNote)
+                    .font(AdminTheme.fontAdminSans(size: 12))
+                    .foregroundStyle(AdminTheme.stone500)
+
                 HStack {
                     Text("Extras")
                         .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
@@ -31,6 +89,7 @@ struct VisitExtrasCard: View {
                         .disabled(isBusy)
                     }
                 }
+                .padding(.top, 4)
 
                 Text("Done during this visit.")
                     .font(AdminTheme.fontAdminSans(size: 12))
@@ -55,6 +114,28 @@ struct VisitExtrasCard: View {
                 }
             }
         }
+    }
+
+    private func stepButton(
+        systemImage: String,
+        enabled: Bool,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(AdminTheme.stone700)
+                .frame(width: 32, height: 32)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(AdminTheme.stone200, lineWidth: 1)
+                }
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy || !enabled)
+        .opacity(isBusy || !enabled ? 0.4 : 1)
+        .accessibilityLabel(label)
     }
 
     private func extraRow(_ extra: Appointment) -> some View {

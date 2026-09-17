@@ -195,6 +195,10 @@ struct ClientProfileView: View {
                             appointmentIds: ids.isEmpty ? [appointment.id] : ids,
                             payment: payment
                         )
+                    },
+                    onVisitUpdated: { visit in
+                        historyMutated = true
+                        viewModel.replaceAppointment(visit)
                     }
                 )
             }
@@ -1166,12 +1170,6 @@ struct ClientProfileView: View {
                     .foregroundStyle(AdminTheme.stone700)
                     .padding(.vertical, 8)
             } else {
-                if !pastHistory.isEmpty {
-                    ShowPastAppointmentsButton {
-                        showPastAppointments = true
-                    }
-                }
-
                 if upcomingHistory.isEmpty {
                     Text("No upcoming bookings")
                         .font(AdminTheme.fontAdminSans(size: 13, weight: .medium))
@@ -1184,6 +1182,12 @@ struct ClientProfileView: View {
                         onSelectAppointment: { selectedAppointment = $0 },
                         showsNestedExtras: true
                     )
+                }
+
+                if !pastHistory.isEmpty {
+                    ShowPastAppointmentsButton {
+                        showPastAppointments = true
+                    }
                 }
             }
         }

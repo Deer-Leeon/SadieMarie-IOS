@@ -17,10 +17,11 @@ struct TimelinePillView: View {
     }
 
     private var laneFrame: OverlapLaneFrame {
-        TimelineEngine.cascadeLaneFrame(
+        TimelineEngine.overlapLaneFrame(
             col: positioned.col,
             totalCols: positioned.totalCols,
-            columnWidth: columnWidth
+            columnWidth: columnWidth,
+            sideBySide: positioned.sideBySide
         )
     }
 
@@ -40,7 +41,7 @@ struct TimelinePillView: View {
         BookingDisplay.CalendarFormatting.formattedTimeRange(for: appointment)
     }
 
-    private var compactOverlap: Bool { positioned.totalCols > 1 }
+    private var compactOverlap: Bool { positioned.totalCols > 1 && !positioned.sideBySide }
     private var peekingUnder: Bool { compactOverlap && positioned.col == 0 }
 
     private var clientName: String {
@@ -67,7 +68,7 @@ struct TimelinePillView: View {
         } label: {
             pillContent
                 .frame(width: frameWidth, height: frameHeight, alignment: .topLeading)
-                .background(backgroundColor)
+                .background(pillFill)
                 .overlay(pillBorder)
                 .overlay(alignment: .topTrailing) {
                     if !peekingUnder {
@@ -183,11 +184,15 @@ struct TimelinePillView: View {
         return AdminTheme.stone500
     }
 
-    private var backgroundColor: Color {
-        if isNoShow { return AdminTheme.stone50 }
-        if let colors = serviceColors { return colors.accent }
-        if BookingDisplay.isPending(appointment) { return AdminTheme.pendingBackground }
-        return AdminTheme.stone100
+    private var pillFill: AnyShapeStyle {
+        if isNoShow { return AnyShapeStyle(AdminTheme.stone50) }
+        if let paint = BookingDisplay.visitBlockPaint(for: appointment) {
+            return paint.shapeStyle
+        }
+        if BookingDisplay.isPending(appointment) {
+            return AnyShapeStyle(AdminTheme.pendingBackground)
+        }
+        return AnyShapeStyle(AdminTheme.stone100)
     }
 
     @ViewBuilder

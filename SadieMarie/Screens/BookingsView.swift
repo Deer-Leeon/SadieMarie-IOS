@@ -168,6 +168,9 @@ struct BookingsView: View {
                             appointmentIds: ids.isEmpty ? [appointment.id] : ids,
                             payment: payment
                         )
+                    },
+                    onVisitUpdated: { visit in
+                        viewModel.replaceAppointment(visit)
                     }
                 )
             }

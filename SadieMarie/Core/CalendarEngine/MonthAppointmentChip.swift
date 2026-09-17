@@ -7,18 +7,17 @@ struct MonthAppointmentChip: View {
     private var isNoShow: Bool { BookingDisplay.isNoShow(appointment) }
     private var hasNoShowFlag: Bool { appointment.clientNoShowFlag }
 
-    private var background: Color {
+    private var fillStyle: AnyShapeStyle {
         if isNoShow {
-            return AdminTheme.stone50
+            return AnyShapeStyle(AdminTheme.stone50)
         }
-        if BookingDisplay.usesServiceColorBackground(appointment),
-           let colors = BookingDisplay.serviceColor(for: appointment) {
-            return colors.accent.opacity(0.92)
+        if let paint = BookingDisplay.visitBlockPaint(for: appointment) {
+            return paint.shapeStyle
         }
         if BookingDisplay.isPending(appointment) {
-            return AdminTheme.awaitingPaymentBackground
+            return AnyShapeStyle(AdminTheme.awaitingPaymentBackground)
         }
-        return Color(red: 245 / 255, green: 245 / 255, blue: 244 / 255)
+        return AnyShapeStyle(Color(red: 245 / 255, green: 245 / 255, blue: 244 / 255))
     }
 
     private var foreground: Color {
@@ -64,7 +63,7 @@ struct MonthAppointmentChip: View {
                 .padding(.top, 1)
                 .padding(.trailing, 2)
         }
-        .background(background)
+        .background(fillStyle)
         .overlay {
             if hasNoShowFlag && !isNoShow {
                 RoundedRectangle(cornerRadius: 4)

@@ -449,6 +449,12 @@ final class ClientProfileViewModel {
         }
     }
 
+    func replaceAppointment(_ visit: Appointment) {
+        history = history.map { appointment in
+            appointment.id == visit.id ? appointment.mergingVisit(visit) : appointment
+        }
+    }
+
     private func loadDossier() async {
         guard let clientId = client?.id else { return }
 

@@ -587,6 +587,88 @@ final class SadieMarieTests: XCTestCase {
         XCTAssertEqual(AppointmentChargePlan.lines(for: paidParent).map(\.id), ["extra"])
     }
 
+    func testAppointmentServiceLabelUsesCatalogueDurationNotChairSpan() {
+        let classicFill = Appointment(
+            id: "fill",
+            bookingTime: "2026-05-26T14:00:00.000Z",
+            endTime: "2026-05-26T16:15:00.000Z",
+            serviceName: "Classic",
+            status: AppointmentStatus.confirmed.rawValue,
+            chairDurationMins: 135,
+            catalogueDurationMins: 120
+        )
+        XCTAssertEqual(BookingDisplay.appointmentServiceLabel(classicFill), "Classic 2 Week Fill")
+
+        let classicFull = Appointment(
+            id: "full",
+            bookingTime: "2026-05-26T14:00:00.000Z",
+            endTime: "2026-05-26T17:00:00.000Z",
+            serviceName: "Classic Full Set",
+            status: AppointmentStatus.confirmed.rawValue,
+            catalogueDurationMins: 180
+        )
+        XCTAssertEqual(BookingDisplay.appointmentServiceLabel(classicFull), "Classic Full Set")
+    }
+
+    func testAppointmentDecodesChairAndCatalogueDuration() throws {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let json = """
+        {
+          "id": "parent",
+          "status": "confirmed",
+          "service_name": "Classic",
+          "chair_duration_mins": 135,
+          "catalogue_duration_mins": 120
+        }
+        """.data(using: .utf8)!
+        let appointment = try decoder.decode(Appointment.self, from: json)
+        XCTAssertEqual(appointment.chairDurationMins, 135)
+        XCTAssertEqual(appointment.catalogueDurationMins, 120)
+        XCTAssertEqual(ChairDuration.displayedMinutes(for: appointment), 135)
+        XCTAssertEqual(ChairDuration.formatLabel(105), "1 hr 45 min")
+        XCTAssertEqual(ChairDuration.snap(137), 135)
+    }
+
+    func testVisitBlockPaintUsesGradientWhenExtraColorDiffers() {
+        let extra = Appointment(
+            id: "extra",
+            status: AppointmentStatus.confirmed.rawValue,
+            serviceColor: "#6B4E5A",
+            attachedToAppointmentId: "parent",
+            catalogueDurationMins: 45
+        )
+        let parent = Appointment(
+            id: "parent",
+            status: AppointmentStatus.confirmed.rawValue,
+            serviceColor: "#FEDCEA",
+            extras: [extra],
+            extraCount: 1,
+            catalogueDurationMins: 90
+        )
+        switch BookingDisplay.visitBlockPaint(for: parent) {
+        case .gradient:
+            break
+        default:
+            XCTFail("Expected a vertical gradient when extra colour differs")
+        }
+
+        let sameColorExtra = Appointment(
+            id: "extra-same",
+            status: AppointmentStatus.confirmed.rawValue,
+            serviceColor: "#FEDCEA",
+            attachedToAppointmentId: "parent",
+            catalogueDurationMins: 30
+        )
+        let same = parent.withExtras([sameColorExtra])
+        switch BookingDisplay.visitBlockPaint(for: same) {
+        case .solid:
+            break
+        default:
+            XCTFail("Expected a solid fill when extra colour matches parent")
+        }
+    }
+
     func testTimelinePositionClipsToNineToNineWindow() {
         let calendar = StudioTime.calendar
         var components = DateComponents()
