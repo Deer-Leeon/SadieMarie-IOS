@@ -587,6 +587,55 @@ final class SadieMarieTests: XCTestCase {
         XCTAssertEqual(AppointmentChargePlan.lines(for: paidParent).map(\.id), ["extra"])
     }
 
+    func testDayCollectedTotalAddsSettledVisitsAndExtras() {
+        func payment(cents: Int, status: TerminalPaymentStatus = .succeeded, kind: AppointmentPaymentKind = .cash) -> AppointmentPaymentSummary {
+            AppointmentPaymentSummary(
+                id: UUID().uuidString,
+                appointmentId: nil,
+                paymentKind: kind,
+                paymentIntentId: nil,
+                readerId: nil,
+                status: status,
+                currency: "usd",
+                baseAmountCents: cents,
+                tipAmountCents: 0,
+                totalAmountCents: cents,
+                failureCode: nil,
+                failureMessage: nil,
+                note: nil,
+                settledByEmail: nil,
+                paidAt: nil
+            )
+        }
+
+        let extra = Appointment(
+            id: "extra",
+            serviceName: "Brow Add On",
+            terminalPayment: payment(cents: 2500, kind: .servicePayment)
+        )
+        let paid = Appointment(
+            id: "paid",
+            serviceName: "2 Week Fill",
+            terminalPayment: payment(cents: 14200),
+            extras: [extra]
+        )
+        let unpaid = Appointment(id: "unpaid", serviceName: "Touch Up", servicePrice: 40)
+        let comped = Appointment(
+            id: "comp",
+            terminalPayment: payment(cents: 0, kind: .complimentary)
+        )
+        let failed = Appointment(
+            id: "failed",
+            terminalPayment: payment(cents: 9000, status: .failed, kind: .servicePayment)
+        )
+
+        XCTAssertEqual(
+            BookingDisplay.collectedCents(for: [paid, unpaid, comped, failed]),
+            16700
+        )
+        XCTAssertEqual(BookingDisplay.formattedCents(16700), "$167")
+    }
+
     func testAppointmentServiceLabelUsesCatalogueDurationNotChairSpan() {
         let classicFill = Appointment(
             id: "fill",
