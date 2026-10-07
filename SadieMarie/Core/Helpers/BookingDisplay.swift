@@ -370,6 +370,22 @@ enum BookingDisplay {
         return formatter.string(from: NSNumber(value: price))
     }
 
+    /// Card, cash, and online payments already settled for these visits, including tips and extras.
+    static func collectedCents(for appointments: [Appointment]) -> Int {
+        appointments.reduce(0) { total, appointment in
+            total
+                + settledTotalCents(appointment.terminalPayment)
+                + appointment.extras.reduce(0) { extraTotal, extra in
+                    extraTotal + settledTotalCents(extra.terminalPayment)
+                }
+        }
+    }
+
+    private static func settledTotalCents(_ payment: AppointmentPaymentSummary?) -> Int {
+        guard let payment, payment.isSettled, payment.totalAmountCents > 0 else { return 0 }
+        return payment.totalAmountCents
+    }
+
     /// Formats Stripe-style integer cents as USD (e.g. 18500 → "$185").
     static func formattedCents(_ cents: Int, currency: String? = "USD") -> String {
         let dollars = Double(cents) / 100.0

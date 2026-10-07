@@ -37,6 +37,12 @@ struct SingleDayModal: View {
         TimelineEngine.layoutBlocksForDay(date: activeDate, blocks: viewModel.timeBlocks)
     }
 
+    private var collectedLabel: String {
+        BookingDisplay.formattedCents(
+            BookingDisplay.collectedCents(for: positioned.map(\.appointment))
+        )
+    }
+
     private var closedHatchBands: [StudioScheduleWindows.MinuteBand] {
         guard viewModel.hasSchedule else { return [] }
         let holes = positioned.compactMap { StudioScheduleWindows.minuteBand(from: $0.appointment) }
@@ -168,6 +174,20 @@ struct SingleDayModal: View {
                 Text(monthDayTitle)
                     .font(AdminTheme.fontAdminSans(size: 13, weight: .medium))
                     .foregroundStyle(AdminTheme.stone700)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(collectedLabel)
+                        .font(AdminTheme.fontAdminSerif(size: 15))
+                        .foregroundStyle(AdminTheme.stone900)
+                        .monospacedDigit()
+                    Text("Collected")
+                        .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
+                        .foregroundStyle(AdminTheme.stone500)
+                        .textCase(.uppercase)
+                        .tracking(1.8)
+                }
+                .padding(.top, 2)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(collectedLabel) collected")
             }
             .frame(maxWidth: .infinity)
 
