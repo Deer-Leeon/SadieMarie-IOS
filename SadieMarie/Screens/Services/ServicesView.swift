@@ -4,6 +4,7 @@ import ClerkKit
 /// Services tab — CMS catalogue (mirrors `/admin/services`).
 struct ServicesView: View {
     @Environment(Clerk.self) private var clerk
+    @Environment(PushRegistration.self) private var pushRegistration
     @Bindable var viewModel: ServicesViewModel
     @State private var formMode: ServiceFormMode?
     @State private var formError: String?
@@ -18,6 +19,12 @@ struct ServicesView: View {
                         .padding(.horizontal, AdminTheme.Spacing.listHorizontal)
                         .padding(.top, 4)
                         .padding(.bottom, 8)
+
+                    if let notice = viewModel.refreshNotice {
+                        RefreshNoticeText(notice: notice)
+                            .padding(.horizontal, AdminTheme.Spacing.listHorizontal)
+                            .padding(.bottom, 8)
+                    }
 
                     if let errorMessage = viewModel.errorMessage {
                         errorBanner(errorMessage)
@@ -37,11 +44,17 @@ struct ServicesView: View {
             .preferredColorScheme(.light)
             .task(id: clerk.session?.id) {
                 guard clerk.session != nil, !viewModel.hasLoaded else { return }
-                await viewModel.load()
+                await viewModel.load(reason: .initial)
+            }
+            .onChange(of: pushRegistration.liveDataRevision) { _, _ in
+                Task {
+                    guard clerk.user != nil else { return }
+                    await viewModel.load(showLoading: false, reason: .resume)
+                }
             }
             .refreshable {
-                guard clerk.session != nil else { return }
-                await viewModel.load(showLoading: false)
+                guard clerk.user != nil else { return }
+                await viewModel.load(showLoading: false, reason: .user)
             }
             .sheet(item: $formMode) { mode in
                 ServiceFormSheet(
@@ -112,7 +125,7 @@ struct ServicesView: View {
 
     @ViewBuilder
     private var listContent: some View {
-        if viewModel.services.isEmpty && !viewModel.isLoading {
+        if viewModel.services.isEmpty && !viewModel.isLoading && viewModel.refreshNotice != .pullToTryAgain {
             emptyState
                 .padding(.horizontal, AdminTheme.Spacing.listHorizontal)
         } else {
@@ -299,4 +312,5 @@ struct ServicesView: View {
 
 #Preview {
     ServicesView(viewModel: ServicesViewModel())
+        .environment(PushRegistration.shared)
 }

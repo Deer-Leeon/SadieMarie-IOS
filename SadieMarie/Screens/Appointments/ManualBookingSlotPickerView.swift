@@ -95,6 +95,12 @@ struct ManualBookingSlotPickerView: View {
                     compactSlotsGrid
                         .padding(.bottom, 2)
                 }
+                Text("Filled = selected · Green = hours · Amber = busy · Black = outside")
+                    .font(AdminTheme.fontAdminSans(size: 9, weight: .medium))
+                    .tracking(1.2)
+                    .foregroundStyle(AdminTheme.stone500)
+                    .textCase(.uppercase)
+                    .frame(maxWidth: .infinity)
             } else {
                 Text(viewModel.availableDates.isEmpty
                     ? "No open days this month — try another month."

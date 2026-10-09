@@ -8,6 +8,9 @@ enum TimelineEngine {
     static let hours = endHour - startHour
     static let minPillHeight: CGFloat = 22
     static let hourLabelColumnWidth: CGFloat = 60
+    /// Overlapping visits shorter than this sit in equal-width columns
+    /// instead of cascading (two 30-minute add-ons stay side by side).
+    static let sideBySideOverlapMaxMinutes = 40
 
     private static let totalVisibleMinutes: Double = Double(hours * 60)
 }
@@ -21,6 +24,9 @@ struct PositionedAppointment: Identifiable, Hashable, Sendable {
     let heightPct: Double
     let col: Int
     let totalCols: Int
+    /// True when this overlapping cluster is all short visits and should
+    /// split into equal-width lanes instead of a Fresha-style cascade.
+    let sideBySide: Bool
 }
 
 struct OverlapLaneFrame: Equatable {
@@ -265,17 +271,25 @@ extension TimelineEngine {
             }
 
             let totalCols = max(lanes.count, 1)
+            let overlapFlags = members.enumerated().map { memberOrder, idx in
+                members.enumerated().contains { otherOrder, otherIdx in
+                    otherOrder != memberOrder && minutesOverlap(sorted[idx], sorted[otherIdx])
+                }
+            }
+            let clusterSideBySide = overlapFlags.contains(true) && members.enumerated().allSatisfy { memberOrder, idx in
+                if !overlapFlags[memberOrder] { return true }
+                return sorted[idx].endMin - sorted[idx].startMin < sideBySideOverlapMaxMinutes
+            }
             for (memberOrder, idx) in members.enumerated() {
                 let item = sorted[idx]
-                let overlapsAnyone = members.enumerated().contains { otherOrder, otherIdx in
-                    otherOrder != memberOrder && minutesOverlap(item, sorted[otherIdx])
-                }
+                let overlapsAnyone = overlapFlags[memberOrder]
                 out[idx] = PositionedAppointment(
                     appointment: item.appointment,
                     topPct: item.topPct,
                     heightPct: item.heightPct,
                     col: overlapsAnyone ? colByMember[memberOrder] : 0,
-                    totalCols: overlapsAnyone ? totalCols : 1
+                    totalCols: overlapsAnyone ? totalCols : 1,
+                    sideBySide: overlapsAnyone && clusterSideBySide
                 )
             }
         }
@@ -283,8 +297,7 @@ extension TimelineEngine {
         return out.compactMap { $0 }
     }
 
-    /// Equal-width columns for daily view: overlapping pills sit next to
-    /// each other with a hairline gap (Fresha 1-day). 3-day / week use cascade.
+    /// Equal-width columns for overlapping short visits (and the week grid).
     static func columnLaneFrame(
         col: Int,
         totalCols: Int,
@@ -332,6 +345,33 @@ extension TimelineEngine {
             leading: leading,
             width: max(columnWidth - leading - outerPx, 8),
             zIndex: 20 + Double(i)
+        )
+    }
+
+    /// Side-by-side columns for short overlapping visits; cascade otherwise.
+    static func overlapLaneFrame(
+        col: Int,
+        totalCols: Int,
+        columnWidth: CGFloat,
+        sideBySide: Bool,
+        indent: CGFloat = 14,
+        outer: CGFloat? = nil
+    ) -> OverlapLaneFrame {
+        if sideBySide && totalCols > 1 {
+            return columnLaneFrame(
+                col: col,
+                totalCols: totalCols,
+                columnWidth: columnWidth,
+                outer: outer ?? 2,
+                gap: 2
+            )
+        }
+        return cascadeLaneFrame(
+            col: col,
+            totalCols: totalCols,
+            columnWidth: columnWidth,
+            indent: indent,
+            outer: outer
         )
     }
 

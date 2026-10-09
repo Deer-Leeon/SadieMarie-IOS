@@ -18,11 +18,10 @@ final class BookingsViewModel {
     private(set) var isUpdatingBlock = false
     private(set) var removingBlockId: String?
     private(set) var errorMessage: String?
-    private let inFlightLoad = InFlightLoad()
+    private(set) var refreshNotice: RefreshNotice?
+    private let refresh = RefreshCoordinator()
 
-    /// Keep the launch logo up while a sleeping backend wakes.
-    private static let firstLoadRetryBudget: TimeInterval = 8
-    private static let firstLoadBackoff: [TimeInterval] = [0.4, 0.8, 1.2, 1.6, 2.0]
+    var hasSuccessfulLoad: Bool { refresh.hasSuccessfulLoad }
 
     init() {
         seedScheduleFromSnapshotIfNeeded()
@@ -38,76 +37,33 @@ final class BookingsViewModel {
         appointments.calendarAppointments
     }
 
-    /// - Parameter showLoading: Full-screen overlay. Live sync (push / poll /
-    ///   foreground) passes `false` so the calendar does not flash empty.
-    func load(showLoading: Bool = true) async {
-        let isInitial = !hasLoaded
-        if isInitial {
-            await SessionKeepAlive.waitUntilReadyForAPI()
-        }
-        let blockUI = showLoading && isInitial
+    /// - Parameter showLoading: Full-screen overlay on the first attempt.
+    ///   Live sync passes `false` so the calendar does not flash empty.
+    /// - Parameter reason: Polls fail quietly. Resume and pull-to-refresh
+    ///   retry, then leave a quiet note if the screen may be stale.
+    func load(showLoading: Bool = true, reason: RefreshReason = .initial) async {
+        let blockUI = showLoading && !hasLoaded
         if blockUI {
             isLoading = true
             errorMessage = nil
         }
 
-        await inFlightLoad.run { [weak self] in
-            await self?.runLoad(isInitial: isInitial)
+        let outcome = await refresh.load(reason: reason, applyNotice: { [weak self] notice in
+            self?.refreshNotice = notice
+        }) { [weak self] in
+            guard let self else { return .cancelled }
+            return await self.performLoad()
         }
         isLoading = false
-    }
-
-    private func runLoad(isInitial: Bool) async {
-        if !isInitial || hasLoaded {
-            _ = await performLoad(publishError: true)
-            return
-        }
-
-        let deadline = Date().addingTimeInterval(Self.firstLoadRetryBudget)
-        var backoffIndex = 0
-        var lastError: Error?
-
-        while !Task.isCancelled {
-            let outcome = await performLoad(publishError: false)
-            switch outcome {
-            case .success:
-                errorMessage = nil
-                hasLoaded = true
-                return
-            case .cancelled:
-                return
-            case .failed(let error):
-                lastError = error
-                let retryable = Self.isRetryableColdStart(error)
-                let remaining = deadline.timeIntervalSinceNow
-                if !retryable || remaining <= 0 {
-                    publishInitialLoadFailure(error)
-                    hasLoaded = true
-                    return
-                }
-                let delay = Self.firstLoadBackoff[min(backoffIndex, Self.firstLoadBackoff.count - 1)]
-                backoffIndex += 1
-                let sleepFor = min(delay, remaining)
-                AppLogger.syncInfo(
-                    "Initial bookings load retrying in \(String(format: "%.1f", sleepFor))s (\(error.localizedDescription))."
-                )
-                try? await Task.sleep(for: .seconds(sleepFor))
-            }
-        }
-
-        if let lastError {
-            publishInitialLoadFailure(lastError)
+        switch outcome {
+        case .success, .failed:
             hasLoaded = true
+        case .skipped, .cancelled:
+            break
         }
     }
 
-    private enum LoadOutcome {
-        case success
-        case cancelled
-        case failed(Error)
-    }
-
-    private func performLoad(publishError: Bool) async -> LoadOutcome {
+    private func performLoad() async -> RefreshAttemptOutcome {
         seedScheduleFromSnapshotIfNeeded()
         async let scheduleResponse = fetchAvailabilityIgnoringErrors()
 
@@ -117,7 +73,7 @@ final class BookingsViewModel {
             let response = try await bookingsResponse
             let blocks = try await blocksResponse
             if response.appointments != appointments {
-                appointments = response.appointments
+                appointments = Appointment.nestAttachedExtras(response.appointments)
             }
             if blocks != timeBlocks {
                 timeBlocks = blocks
@@ -127,41 +83,13 @@ final class BookingsViewModel {
             applySchedule(await scheduleResponse)
             return .success
         } catch is CancellationError {
+            _ = await scheduleResponse
             return .cancelled
-        } catch let error as AdminAPIError {
-            AppLogger.syncError("fetchBookings failed: \(error.localizedDescription)")
-            if publishError, appointments.isEmpty {
-                errorMessage = message(for: error)
-            }
-            applySchedule(await scheduleResponse)
-            return .failed(error)
         } catch {
             AppLogger.syncError("fetchBookings failed: \(error.localizedDescription)")
-            if publishError, appointments.isEmpty {
-                errorMessage = error.localizedDescription
-            }
             applySchedule(await scheduleResponse)
             return .failed(error)
         }
-    }
-
-    private func publishInitialLoadFailure(_ error: Error) {
-        guard appointments.isEmpty else {
-            errorMessage = nil
-            return
-        }
-        if let apiError = error as? AdminAPIError {
-            errorMessage = message(for: apiError)
-        } else {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    private static func isRetryableColdStart(_ error: Error) -> Bool {
-        if let apiError = error as? AdminAPIError {
-            return apiError.isRetryableColdStart
-        }
-        return true
     }
 
     private func seedScheduleFromSnapshotIfNeeded() {
@@ -287,19 +215,28 @@ final class BookingsViewModel {
         applyPayment(appointmentIds: [appointmentId], payment: payment)
     }
 
-    func applyPayment(appointmentIds: [String], payment: AppointmentPaymentSummary?) {
-        guard !appointmentIds.isEmpty else { return }
-        let ids = Set(appointmentIds)
+    func applyPayment(
+        appointmentIds: [String],
+        payment: AppointmentPaymentSummary?,
+        payments: [AppointmentPaymentSummary]? = nil
+    ) {
+        let ids = appointmentIds
+        guard !ids.isEmpty || payments?.isEmpty == false else { return }
         appointments = appointments.map { appointment in
-            appointment.withPatchedPayments(ids: Array(ids), payment: payment)
+            appointment.withPatchedPayments(ids: ids, payment: payment, payments: payments)
         }
     }
 
     /// Patch a visit after extras / chair-length edits so the grid grows immediately.
     func replaceAppointment(_ visit: Appointment) {
-        appointments = appointments.map { appointment in
+        let extraIds = Set(visit.extras.map(\.id))
+        var next = appointments.map { appointment in
             appointment.id == visit.id ? appointment.mergingVisit(visit) : appointment
         }
+        if !extraIds.isEmpty {
+            next.removeAll { extraIds.contains($0.id) }
+        }
+        appointments = Appointment.nestAttachedExtras(next)
     }
 
     private static func serverMessage(from error: AdminAPIError) -> String? {
@@ -314,9 +251,9 @@ final class BookingsViewModel {
     private func message(for error: AdminAPIError) -> String {
         switch error {
         case .unauthorized, .noActiveSession:
-            return error.localizedDescription
+            return "Please sign in again."
         case .forbidden:
-            return "You’re signed in but don’t have admin access. Ask for the admin role in Clerk (publicMetadata.role = admin)."
+            return "You’re signed in but don’t have admin access."
         case .decoding:
             return "Couldn't read the server's response. Please try again."
         case .transport:

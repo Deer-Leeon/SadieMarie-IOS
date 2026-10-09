@@ -81,6 +81,8 @@ struct TimeGridAppointmentBlock: View {
                 .foregroundStyle(secondaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
+
+            extraNameLines
         }
     }
 
@@ -99,6 +101,18 @@ struct TimeGridAppointmentBlock: View {
             Text(BookingDisplay.CalendarFormatting.formattedChipTime(for: appointment))
                 .font(AdminTheme.fontAdminSans(size: 8))
                 .foregroundStyle(secondaryText)
+                .lineLimit(1)
+
+            extraNameLines
+        }
+    }
+
+    @ViewBuilder
+    private var extraNameLines: some View {
+        ForEach(appointment.extras) { extra in
+            Text("+ \(BookingDisplay.appointmentServiceLabel(extra))")
+                .font(AdminTheme.fontAdminSans(size: isWeekStyle ? 8 : 9, weight: .semibold))
+                .foregroundStyle(primaryText)
                 .lineLimit(1)
         }
     }

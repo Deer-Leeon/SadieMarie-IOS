@@ -447,6 +447,114 @@ final class SadieMarieTests: XCTestCase {
         XCTAssertEqual(url?.absoluteString, "https://\(blobHost)")
     }
 
+    func testSiteImageSlotDecodesPhotoMeta() throws {
+        let json = """
+        {"id":"home_hero","image_url":"https://cdn.example.com/hero.jpg","caption":null,"alt_text":"Hello","file_name":"hello-lehi","photo_subject":"portrait"}
+        """
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let slot = try decoder.decode(SiteImageSlot.self, from: Data(json.utf8))
+        XCTAssertEqual(slot.altText, "Hello")
+        XCTAssertEqual(slot.fileName, "hello-lehi")
+        XCTAssertEqual(slot.photoSubject, "portrait")
+    }
+
+    func testPatchWebsiteSlotUsesCamelCasePhotoKeys() throws {
+        var request = PatchWebsiteSlotRequest(id: "home_hero")
+        request.includesAltText = true
+        request.altText = "Hello"
+        request.includesFileName = true
+        request.fileName = ""
+        request.includesPhotoSubject = true
+        request.photoSubject = "portrait"
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: request.jsonData()) as? [String: String]
+        )
+        XCTAssertEqual(object["id"], "home_hero")
+        XCTAssertEqual(object["altText"], "Hello")
+        XCTAssertEqual(object["fileName"], "")
+        XCTAssertEqual(object["photoSubject"], "portrait")
+        XCTAssertNil(object["caption"])
+        XCTAssertNil(object["alt_text"])
+    }
+
+    func testSiteImageUploadFormIncludesPhotoFields() {
+        let payload = MultipartFormDataBuilder.makeSiteImageUpload(
+            id: "home_hero",
+            imageData: Data([0xFF, 0xD8, 0xFF]),
+            caption: "Glow",
+            photo: SiteImagePhotoFields(
+                altText: "Alt words",
+                fileName: "lash-set-lehi-utah",
+                photoSubject: "portrait"
+            ),
+            format: .jpeg
+        )
+        let body = String(decoding: payload.body, as: UTF8.self)
+        XCTAssertTrue(body.contains("name=\"altText\""))
+        XCTAssertTrue(body.contains("Alt words"))
+        XCTAssertTrue(body.contains("name=\"fileName\""))
+        XCTAssertTrue(body.contains("lash-set-lehi-utah"))
+        XCTAssertTrue(body.contains("name=\"photoSubject\""))
+        XCTAssertTrue(body.contains("portrait"))
+        XCTAssertTrue(body.contains("name=\"caption\""))
+    }
+
+    func testPhotoMetaMatchesWebsiteSuggestions() {
+        let services = [
+            PhotoServiceOption(slug: "full-set", title: "Lash & Tint", category: "Lash Extensions"),
+            PhotoServiceOption(slug: "brow-shape", title: "Brow Shape", category: "Brows"),
+            PhotoServiceOption(slug: "lip", title: "Lip Tint", category: "Add ons"),
+        ]
+        let portrait = PhotoMeta.suggest(subject: PhotoMeta.portraitSubject, services: [])
+        XCTAssertEqual(portrait.alt, "Sadie Marie, lash and brow studio in Lehi, Utah")
+        XCTAssertEqual(portrait.fileName, "sadie-marie-lehi-utah")
+
+        let lash = PhotoMeta.suggest(subject: "full-set", services: services)
+        XCTAssertEqual(lash.alt, "Lash & Tint by Sadie Marie at Serenity Studios in Lehi, Utah")
+        XCTAssertEqual(lash.fileName, "lash-and-tint-lehi-utah")
+
+        let brow = PhotoMeta.suggest(subject: "brow-shape", services: services)
+        XCTAssertEqual(brow.alt, "Brow Shape by Sadie Marie in Lehi, Utah")
+        XCTAssertEqual(brow.fileName, "brow-shape-lehi-utah")
+
+        let other = PhotoMeta.suggest(subject: "lip", services: services)
+        XCTAssertEqual(other.alt, "Lip Tint at Sadie Marie in Lehi, Utah")
+        XCTAssertEqual(PhotoMeta.suggest(subject: "", services: services).alt, "")
+        XCTAssertEqual(PhotoMeta.suggest(subject: "", services: services).fileName, "")
+    }
+
+    func testBookablePhotoServicesSkipGroupsAndUnbookableRows() {
+        let options = PhotoServiceOption.bookable(from: [
+            Service(
+                id: 1,
+                calEventId: 10,
+                category: "Lashes",
+                title: "Full Set",
+                price: 100,
+                durationMins: 90,
+                slug: "full-set"
+            ),
+            Service(
+                id: 2,
+                category: "Lashes",
+                title: "Draft",
+                price: 0,
+                durationMins: 30,
+                slug: "draft"
+            ),
+            Service(
+                id: 3,
+                category: "Lashes",
+                title: "Group",
+                price: 0,
+                slug: "group",
+                isGroup: true
+            ),
+        ])
+        XCTAssertEqual(options.map(\.slug), ["full-set"])
+    }
+
     func testWebsiteSlotItemNormalizesProtocolRelativeURL() {
         let url = WebsiteSlotItem.normalizedImageURL(from: "//cdn.example.com/hero.jpg")
         XCTAssertEqual(url?.absoluteString, "https://cdn.example.com/hero.jpg")
@@ -532,6 +640,29 @@ final class SadieMarieTests: XCTestCase {
         XCTAssertEqual([parent, extra].visibleAppointments.map(\.id), ["parent"])
         XCTAssertEqual([parent, extra].calendarAppointments.map(\.id), ["parent"])
         XCTAssertEqual([parent, extra].visibleForBookingsList().map(\.id), ["parent"])
+    }
+
+    func testNestAttachedExtrasFoldsChildrenOntoParent() {
+        let parent = Appointment(
+            id: "parent",
+            bookingTime: "2026-10-31T16:00:00.000Z",
+            endTime: "2026-10-31T17:30:00.000Z",
+            serviceName: "Korean Lash Lift + Tint",
+            status: AppointmentStatus.confirmed.rawValue
+        )
+        let extra = Appointment(
+            id: "extra",
+            bookingTime: "2026-10-31T16:00:00.000Z",
+            endTime: "2026-10-31T17:00:00.000Z",
+            serviceName: "Touch Up",
+            status: AppointmentStatus.confirmed.rawValue,
+            attachedToAppointmentId: "parent"
+        )
+        let nested = Appointment.nestAttachedExtras([parent, extra])
+        XCTAssertEqual(nested.map(\.id), ["parent"])
+        XCTAssertEqual(nested[0].extras.map(\.id), ["extra"])
+        XCTAssertEqual(nested[0].extraCount, 1)
+        XCTAssertEqual(nested.visibleAppointments.map(\.id), ["parent"])
     }
 
     func testAppointmentDecodesNestedExtrasAndChargePlan() throws {
@@ -634,6 +765,98 @@ final class SadieMarieTests: XCTestCase {
             16700
         )
         XCTAssertEqual(BookingDisplay.formattedCents(16700), "$167")
+    }
+
+    func testGroupSettlementKeepsEachVisitsOwnPayment() {
+        let parent = Appointment(
+            id: "parent",
+            bookingTime: "2026-10-31T16:00:00.000Z",
+            endTime: "2026-10-31T17:30:00.000Z",
+            serviceName: "Korean Lash Lift + Tint",
+            status: AppointmentStatus.confirmed.rawValue,
+            servicePrice: 70
+        )
+        let extra = Appointment(
+            id: "extra",
+            bookingTime: "2026-10-31T16:00:00.000Z",
+            endTime: "2026-10-31T18:00:00.000Z",
+            serviceName: "2 Week Fill",
+            status: AppointmentStatus.confirmed.rawValue,
+            servicePrice: 60,
+            attachedToAppointmentId: "parent"
+        )
+        let sibling = Appointment(
+            id: "sibling",
+            bookingTime: "2026-10-31T19:00:00.000Z",
+            endTime: "2026-10-31T20:00:00.000Z",
+            serviceName: "Brow Lamination",
+            status: AppointmentStatus.confirmed.rawValue,
+            servicePrice: 80
+        )
+        let visit = Appointment.nestAttachedExtras([parent, extra])[0]
+        let parentPay = cashPayment(id: "pay-parent", appointmentId: "parent", cents: 7000)
+        let extraPay = cashPayment(id: "pay-extra", appointmentId: "extra", cents: 6000)
+        let siblingPay = cashPayment(id: "pay-sibling", appointmentId: "sibling", cents: 8000)
+        let payments = [parentPay, extraPay, siblingPay]
+
+        let patchedVisit = visit.withPatchedPayments(
+            ids: ["parent", "extra", "sibling"],
+            payment: parentPay,
+            payments: payments
+        )
+        let patchedSibling = sibling.withPatchedPayments(
+            ids: ["parent", "extra", "sibling"],
+            payment: parentPay,
+            payments: payments
+        )
+
+        XCTAssertEqual(patchedVisit.terminalPayment?.totalAmountCents, 7000)
+        XCTAssertEqual(patchedVisit.extras[0].terminalPayment?.totalAmountCents, 6000)
+        XCTAssertEqual(patchedVisit.extras[0].terminalPayment?.appointmentId, "extra")
+        XCTAssertEqual(patchedSibling.terminalPayment?.totalAmountCents, 8000)
+        XCTAssertTrue(patchedVisit.unpaidExtras.isEmpty)
+        XCTAssertEqual(AppointmentChargePlan.lines(for: patchedVisit).map(\.id), [])
+
+        let parentOnly = visit.withPatchedPayments(
+            ids: ["parent", "extra"],
+            payment: parentPay,
+            payments: [parentPay]
+        )
+        XCTAssertEqual(parentOnly.terminalPayment?.totalAmountCents, 7000)
+        XCTAssertNil(parentOnly.extras[0].terminalPayment)
+        XCTAssertEqual(AppointmentChargePlan.lines(for: parentOnly).map(\.id), ["extra"])
+
+        let undoneParent = patchedVisit.withPatchedPayments(
+            ids: ["parent"],
+            payment: nil
+        )
+        XCTAssertNil(undoneParent.terminalPayment)
+        XCTAssertEqual(undoneParent.extras[0].terminalPayment?.appointmentId, "extra")
+        XCTAssertEqual(AppointmentChargePlan.lines(for: undoneParent).map(\.id), ["parent"])
+    }
+
+    private func cashPayment(
+        id: String,
+        appointmentId: String,
+        cents: Int
+    ) -> AppointmentPaymentSummary {
+        AppointmentPaymentSummary(
+            id: id,
+            appointmentId: appointmentId,
+            paymentKind: .cash,
+            paymentIntentId: nil,
+            readerId: nil,
+            status: .succeeded,
+            currency: "usd",
+            baseAmountCents: cents,
+            tipAmountCents: 0,
+            totalAmountCents: cents,
+            failureCode: nil,
+            failureMessage: nil,
+            note: nil,
+            settledByEmail: nil,
+            paidAt: nil
+        )
     }
 
     func testAppointmentServiceLabelUsesCatalogueDurationNotChairSpan() {
@@ -1288,6 +1511,9 @@ final class SadieMarieTests: XCTestCase {
         viewModel.beginAddVisit()
         XCTAssertEqual(viewModel.step, .service)
         XCTAssertTrue(viewModel.slotIsOccupied(firstSlot))
+        XCTAssertTrue(viewModel.slotIsOccupied("2026-08-10T18:15:00.000Z"))
+        XCTAssertTrue(viewModel.slotIsOccupied("2026-08-10T20:15:00.000Z"))
+        XCTAssertFalse(viewModel.slotIsOccupied("2026-08-10T20:30:00.000Z"))
         XCTAssertFalse(viewModel.slotIsOccupied(secondSlot))
 
         viewModel.selectedService = Self.sampleManualService
@@ -1513,5 +1739,84 @@ final class SadieMarieTests: XCTestCase {
         XCTAssertTrue(BookingDisplay.isUpcoming(inProgress, now: now))
         XCTAssertFalse(BookingDisplay.isUpcoming(justEnded, now: now))
         XCTAssertTrue(BookingDisplay.isUpcoming(laterToday, now: now))
+    }
+
+    func testRefreshFailureStaysQuietUntilTheScreenHasNothing() async {
+        XCTAssertNil(
+            RefreshRecovery.notice(hasSuccessfulLoad: false, reason: .poll, isSignedOut: false)
+        )
+        XCTAssertNil(
+            RefreshRecovery.notice(hasSuccessfulLoad: true, reason: .resume, isSignedOut: true)
+        )
+        XCTAssertEqual(
+            RefreshRecovery.notice(hasSuccessfulLoad: false, reason: .initial, isSignedOut: false),
+            .pullToTryAgain
+        )
+        XCTAssertEqual(
+            RefreshRecovery.notice(hasSuccessfulLoad: false, reason: .resume, isSignedOut: false),
+            .pullToTryAgain
+        )
+        XCTAssertEqual(
+            RefreshRecovery.notice(hasSuccessfulLoad: true, reason: .resume, isSignedOut: false),
+            .couldntRefresh
+        )
+        XCTAssertEqual(
+            RefreshRecovery.notice(hasSuccessfulLoad: true, reason: .user, isSignedOut: false),
+            .couldntRefresh
+        )
+        XCTAssertEqual(RefreshRecovery.louder(.poll, .resume), .resume)
+        XCTAssertEqual(RefreshRecovery.louder(.user, .initial), .user)
+
+        XCTAssertEqual(RefreshNotice.pullToTryAgain.message, "Pull to try again.")
+        XCTAssertFalse(RefreshNotice.couldntRefresh.message.localizedCaseInsensitiveContains("clerk"))
+        XCTAssertFalse(
+            AdminAPIError.noActiveSession.errorDescription?.localizedCaseInsensitiveContains("clerk") ?? true
+        )
+        XCTAssertFalse(
+            AdminAPIError.unauthorized.errorDescription?.localizedCaseInsensitiveContains("clerk") ?? true
+        )
+
+        XCTAssertTrue(RefreshRecovery.isRetryable(AdminAPIError.noActiveSession))
+        XCTAssertTrue(RefreshRecovery.isRetryable(AdminAPIError.unauthorized))
+        XCTAssertTrue(RefreshRecovery.isRetryable(AdminAPIError.transport(URLError(.notConnectedToInternet))))
+        XCTAssertTrue(RefreshRecovery.isRetryable(AdminAPIError.server(status: 503, body: nil)))
+        XCTAssertFalse(RefreshRecovery.isRetryable(AdminAPIError.forbidden))
+        XCTAssertFalse(RefreshRecovery.isRetryable(AdminAPIError.notFound))
+        XCTAssertFalse(
+            RefreshRecovery.isRetryable(
+                AdminAPIError.decoding(.dataCorrupted(.init(codingPath: [], debugDescription: "bad")))
+            )
+        )
+
+        let notices = RefreshNoticeController()
+        var shown: RefreshNotice?
+        notices.bind { shown = $0 }
+
+        notices.record(
+            hasSuccessfulLoad: false,
+            reason: .resume,
+            isSignedOut: false,
+            fadeAfter: .milliseconds(40)
+        )
+        XCTAssertEqual(shown, .pullToTryAgain)
+        try? await Task.sleep(nanoseconds: 80_000_000)
+        XCTAssertEqual(shown, .pullToTryAgain, "An empty tab keeps the pull line until a load succeeds.")
+
+        notices.record(
+            hasSuccessfulLoad: true,
+            reason: .resume,
+            isSignedOut: false,
+            fadeAfter: .milliseconds(40)
+        )
+        XCTAssertEqual(shown, .couldntRefresh)
+        try? await Task.sleep(nanoseconds: 80_000_000)
+        XCTAssertNil(shown, "A stale note fades and leaves the last good screen.")
+
+        notices.record(
+            hasSuccessfulLoad: false,
+            reason: .poll,
+            isSignedOut: false
+        )
+        XCTAssertNil(shown, "A poll failure does not bring the note back.")
     }
 }

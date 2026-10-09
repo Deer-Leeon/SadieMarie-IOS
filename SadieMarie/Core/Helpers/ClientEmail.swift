@@ -49,14 +49,26 @@ enum ClientEmail {
 
 enum AdminAPIResponseParser {
     static func message(from body: String?, fallback: String) -> String {
-        guard let body,
-              let data = body.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let message = object["message"] as? String,
-              !message.isEmpty else {
-            return fallback
+        guard let body else { return fallback }
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return fallback }
+        if looksLikeHTML(trimmed) { return fallback }
+
+        guard let data = trimmed.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return shorten(trimmed, fallback: fallback)
         }
-        return message
+        if let message = object["message"] as? String, !message.isEmpty {
+            return shorten(message, fallback: fallback)
+        }
+        return fallback
+    }
+
+    static func userFacingServerMessage(status _: Int, body: String?) -> String {
+        message(
+            from: body,
+            fallback: "Couldn't load this right now. Please try again."
+        )
     }
 
     static func clientEmailErrorMessage(from error: AdminAPIError) -> String {
@@ -78,5 +90,20 @@ enum AdminAPIResponseParser {
             }
         }
         return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+
+    private static func looksLikeHTML(_ value: String) -> Bool {
+        let head = String(value.prefix(200)).lowercased()
+        return head.hasPrefix("<!")
+            || head.hasPrefix("<html")
+            || head.contains("<!doctype")
+            || head.contains("<html")
+            || head.contains("__next_error__")
+    }
+
+    private static func shorten(_ value: String, fallback: String) -> String {
+        if looksLikeHTML(value) { return fallback }
+        if value.count > 180 { return fallback }
+        return value
     }
 }

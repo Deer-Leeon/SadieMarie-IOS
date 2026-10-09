@@ -80,74 +80,152 @@ enum BookingDisplay {
         }
     }
 
-    static func visitBlockPaint(for apt: Appointment) -> VisitBlockPaint? {
-        guard let parent = serviceColor(for: apt) else { return nil }
-        let extras = apt.extras
-        if extras.isEmpty {
-            return .solid(parent.accent)
+    struct VisitPaintBand {
+        enum Kind {
+            case parent
+            case extra
         }
 
-        struct Segment {
-            let color: Color
-            let hex: String
-            let weight: Double
-        }
+        let hex: String
+        let color: Color
+        let text: Color
+        let startPct: Double
+        let endPct: Double
+        let kind: Kind
+        let label: String
+    }
 
+    static func visitPaintBands(for apt: Appointment) -> [VisitPaintBand] {
+        guard let parent = serviceColor(for: apt) else { return [] }
         func catalogueWeight(_ mins: Int?) -> Double {
             if let mins, mins > 0 { return Double(mins) }
             return 60
         }
 
-        var segments: [Segment] = [
-            Segment(
-                color: parent.accent,
+        struct Raw {
+            let hex: String
+            let color: ServiceColor
+            let weight: Double
+            let kind: VisitPaintBand.Kind
+            let label: String
+        }
+
+        var raw: [Raw] = [
+            Raw(
                 hex: (apt.serviceColor ?? "").uppercased(),
-                weight: catalogueWeight(apt.catalogueDurationMins)
+                color: parent,
+                weight: catalogueWeight(apt.catalogueDurationMins),
+                kind: .parent,
+                label: appointmentServiceLabel(apt)
             )
         ]
-        for extra in extras {
-            let color = serviceColor(for: extra)
-            segments.append(
-                Segment(
-                    color: color?.accent ?? parent.accent,
+        for extra in apt.extras {
+            let color = serviceColor(for: extra) ?? parent
+            raw.append(
+                Raw(
                     hex: (extra.serviceColor ?? apt.serviceColor ?? "").uppercased(),
-                    weight: catalogueWeight(extra.catalogueDurationMins)
+                    color: color,
+                    weight: catalogueWeight(extra.catalogueDurationMins),
+                    kind: .extra,
+                    label: appointmentServiceLabel(extra)
                 )
             )
         }
-
-        let unique = Set(segments.map(\.hex).filter { !$0.isEmpty })
-        if unique.count <= 1 {
-            return .solid(segments[0].color)
-        }
-
-        let totalWeight = segments.reduce(0) { $0 + $1.weight }
-        let blendPct = min(8, max(3, (6 / max(totalWeight, 1)) * 100))
-        var stops: [Gradient.Stop] = []
+        let totalWeight = raw.reduce(0) { $0 + $1.weight }
+        var bands: [VisitPaintBand] = []
         var cursor = 0.0
-        for index in segments.indices {
-            let seg = segments[index]
+        for seg in raw {
             let start = (cursor / totalWeight) * 100
             let end = ((cursor + seg.weight) / totalWeight) * 100
-            if index + 1 >= segments.count {
-                stops.append(Gradient.Stop(color: seg.color, location: start / 100))
-                stops.append(Gradient.Stop(color: seg.color, location: 1))
-            } else {
-                let next = segments[index + 1]
-                let half = min(blendPct, (end - start) / 2, (next.weight / totalWeight) * 100 / 2)
-                stops.append(Gradient.Stop(color: seg.color, location: start / 100))
-                stops.append(Gradient.Stop(color: seg.color, location: max(start, end - half) / 100))
-                stops.append(Gradient.Stop(color: next.color, location: min(100, end + half) / 100))
-            }
+            bands.append(
+                VisitPaintBand(
+                    hex: seg.hex,
+                    color: seg.color.accent,
+                    text: seg.color.text,
+                    startPct: start,
+                    endPct: end,
+                    kind: seg.kind,
+                    label: seg.label
+                )
+            )
             cursor += seg.weight
         }
+        return bands
+    }
 
-        let clamped = stops
-            .map { Gradient.Stop(color: $0.color, location: min(1, max(0, $0.location))) }
-            .sorted { $0.location < $1.location }
+    static func visitBlockPaint(for apt: Appointment) -> VisitBlockPaint? {
+        let bands = visitPaintBands(for: apt)
+        guard let first = bands.first else { return nil }
+        if bands.count == 1 {
+            return .solid(first.color)
+        }
+        let unique = Set(bands.map { $0.hex.trimmingCharacters(in: CharacterSet(charactersIn: "#")).uppercased() }.filter { !$0.isEmpty })
+        if unique.count <= 1 {
+            return .solid(first.color)
+        }
+
+        // CSS linear-gradient keeps stops in list order and ignores a later
+        // stop that jumps backwards. SwiftUI sorts by location, so a last-band
+        // stop at the same % as the mixed seam becomes a hard colour cut.
+        var stops: [Gradient.Stop] = []
+        func append(_ color: Color, _ pct: Double) {
+            let loc = min(1, max(0, pct / 100))
+            if let last = stops.last, loc <= last.location + 0.002 {
+                return
+            }
+            stops.append(Gradient.Stop(color: color, location: loc))
+        }
+
+        for index in bands.indices {
+            let seg = bands[index]
+            guard index + 1 < bands.count else {
+                append(seg.color, max(seg.startPct, (stops.last?.location ?? 0) * 100))
+                append(seg.color, 100)
+                continue
+            }
+            let next = bands[index + 1]
+            let span = seg.endPct - seg.startPct
+            let nextSpan = next.endPct - next.startPct
+            let fade = min(46, max(28, min(span, nextSpan) * 0.9))
+            let hold = max(seg.startPct, seg.endPct - fade)
+            let intoNext = min(100, seg.endPct + fade)
+            let early = mixedColor(from: seg.hex, to: next.hex, t: 0.32) ?? seg.color
+            let mid = mixedColor(from: seg.hex, to: next.hex, t: 0.5) ?? next.color
+            let late = mixedColor(from: seg.hex, to: next.hex, t: 0.68) ?? next.color
+            append(seg.color, seg.startPct)
+            append(seg.color, hold)
+            append(early, hold + (seg.endPct - hold) * 0.5)
+            append(mid, seg.endPct)
+            append(late, seg.endPct + (intoNext - seg.endPct) * 0.5)
+            append(next.color, intoNext)
+        }
+
+        if let last = stops.last, last.location < 1 {
+            append(last.color, 100)
+        }
+        guard stops.count >= 2 else { return .solid(first.color) }
 
         return .gradient(
-            LinearGradient(stops: clamped, startPoint: .top, endPoint: .bottom)
+            LinearGradient(stops: stops, startPoint: .top, endPoint: .bottom)
+        )
+    }
+
+    private static func mixedColor(from hexA: String, to hexB: String, t: Double) -> Color? {
+        func rgb(_ hex: String) -> (r: Double, g: Double, b: Double)? {
+            var trimmed = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("#") { trimmed.removeFirst() }
+            guard trimmed.count == 6, let value = UInt32(trimmed, radix: 16) else { return nil }
+            return (
+                Double((value >> 16) & 0xFF) / 255,
+                Double((value >> 8) & 0xFF) / 255,
+                Double(value & 0xFF) / 255
+            )
+        }
+        guard let a = rgb(hexA), let b = rgb(hexB) else { return nil }
+        return Color(
+            red: a.r + (b.r - a.r) * t,
+            green: a.g + (b.g - a.g) * t,
+            blue: a.b + (b.b - a.b) * t
         )
     }
 

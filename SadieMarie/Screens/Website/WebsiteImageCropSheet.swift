@@ -6,17 +6,49 @@ struct WebsiteImageCropSheet: View {
     let label: String
     let aspectRatio: CGFloat
     let requiresCaption: Bool
-    let initialCaption: String
+    let services: [PhotoServiceOption]
+    let showsPhotoMeta: Bool
     let image: UIImage
     let onCancel: () -> Void
-    let onSave: (Data, String?) -> Void
+    let onSave: (Data, String?, SiteImagePhotoFields?) -> Void
 
     @State private var scale: CGFloat = 1
     @State private var lastScale: CGFloat = 1
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
-    @State private var caption: String = ""
+    @State private var caption: String
+    @State private var subject: String
+    @State private var altText: String
+    @State private var fileName: String
     @State private var cropSize: CGSize = .zero
+
+    init(
+        label: String,
+        aspectRatio: CGFloat,
+        requiresCaption: Bool,
+        initialCaption: String,
+        services: [PhotoServiceOption] = [],
+        showsPhotoMeta: Bool = false,
+        initialSubject: String = "",
+        initialAlt: String = "",
+        initialFileName: String = "",
+        image: UIImage,
+        onCancel: @escaping () -> Void,
+        onSave: @escaping (Data, String?, SiteImagePhotoFields?) -> Void
+    ) {
+        self.label = label
+        self.aspectRatio = aspectRatio
+        self.requiresCaption = requiresCaption
+        self.services = services
+        self.showsPhotoMeta = showsPhotoMeta
+        self.image = image
+        self.onCancel = onCancel
+        self.onSave = onSave
+        _caption = State(initialValue: initialCaption)
+        _subject = State(initialValue: initialSubject)
+        _altText = State(initialValue: initialAlt)
+        _fileName = State(initialValue: initialFileName)
+    }
 
     var body: some View {
         NavigationStack {
@@ -66,27 +98,43 @@ struct WebsiteImageCropSheet: View {
                             cropSize = newFrame
                         }
                     }
-                    .frame(height: min(360, UIScreen.main.bounds.height * 0.42))
+                    .frame(height: showsPhotoMeta
+                        ? min(240, UIScreen.main.bounds.height * 0.28)
+                        : min(360, UIScreen.main.bounds.height * 0.42))
 
-                    if requiresCaption {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Caption")
-                                .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
-                                .foregroundStyle(AdminTheme.stone700)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            if requiresCaption {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Caption")
+                                        .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
+                                        .foregroundStyle(AdminTheme.stone700)
 
-                            TextField("Shown on the portfolio tile", text: $caption)
-                                .font(AdminTheme.fontAdminSans(size: 15))
-                                .foregroundStyle(AdminTheme.stone900)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 12)
-                                .background(AdminTheme.cardFill)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10)
-                                        .stroke(AdminTheme.stone200, lineWidth: 1)
+                                    TextField("Shown on the portfolio tile", text: $caption)
+                                        .font(AdminTheme.fontAdminSans(size: 15))
+                                        .foregroundStyle(AdminTheme.stone900)
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 12)
+                                        .background(AdminTheme.cardFill)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 10)
+                                                .stroke(AdminTheme.stone200, lineWidth: 1)
+                                        )
+                                }
+                            }
+
+                            if showsPhotoMeta {
+                                WebsitePhotoMetaFields(
+                                    services: services,
+                                    subject: $subject,
+                                    altText: $altText,
+                                    fileName: $fileName
                                 )
+                            }
                         }
                         .padding(.horizontal, AdminTheme.Spacing.listHorizontal)
+                        .padding(.bottom, 12)
                     }
 
                     Spacer(minLength: 0)
@@ -109,14 +157,20 @@ struct WebsiteImageCropSheet: View {
                             cropSize: cropSize
                         ) else { return }
                         let trimmedCaption = caption.trimmingCharacters(in: .whitespacesAndNewlines)
-                        onSave(data, trimmedCaption.isEmpty ? nil : trimmedCaption)
+                        let photo = showsPhotoMeta
+                            ? SiteImagePhotoFields(
+                                altText: altText,
+                                fileName: fileName,
+                                photoSubject: subject
+                            )
+                            : nil
+                        onSave(data, trimmedCaption.isEmpty ? nil : trimmedCaption, photo)
                     }
                     .fontWeight(.semibold)
                     .foregroundStyle(AdminTheme.stone900)
                 }
             }
             .onAppear {
-                caption = initialCaption
                 resetCropTransform()
             }
         }

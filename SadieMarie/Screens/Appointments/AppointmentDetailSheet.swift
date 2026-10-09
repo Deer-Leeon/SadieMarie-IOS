@@ -6,7 +6,7 @@ struct AppointmentDetailSheet: View {
     var knownAppointments: [Appointment] = []
     var onDismiss: () -> Void
     var onMutated: () -> Void
-    var onPaymentMutated: (AppointmentPaymentSummary?, [String]) -> Void
+    var onPaymentMutated: (AppointmentPaymentSummary?, [String], [AppointmentPaymentSummary]?) -> Void
     var onVisitUpdated: (Appointment) -> Void
 
     @State private var statusAction: StatusAction?
@@ -17,6 +17,7 @@ struct AppointmentDetailSheet: View {
     @State private var showCancelConfirm = false
     @State private var cancelSendSms = true
     @State private var showReschedule = false
+    @State private var showChangeService = false
     @State private var clientProfileEntry: ClientProfileEntry?
     /// Live settlement snapshot so Comp/Cash/Charge update the open sheet
     /// immediately without relying on a close/reopen cycle.
@@ -32,7 +33,7 @@ struct AppointmentDetailSheet: View {
         knownAppointments: [Appointment] = [],
         onDismiss: @escaping () -> Void,
         onMutated: @escaping () -> Void,
-        onPaymentMutated: @escaping (AppointmentPaymentSummary?, [String]) -> Void = { _, _ in },
+        onPaymentMutated: @escaping (AppointmentPaymentSummary?, [String], [AppointmentPaymentSummary]?) -> Void = { _, _, _ in },
         onVisitUpdated: @escaping (Appointment) -> Void = { _ in }
     ) {
         self.appointment = appointment
@@ -66,6 +67,21 @@ struct AppointmentDetailSheet: View {
             return false
         }
         return true
+    }
+
+    /// Unpaid confirmed visit whose start is still in the future.
+    /// A saved card is not payment.
+    private var canChangeService: Bool {
+        let visit = liveAppointment
+        guard !BookingDisplay.isReadOnly(visit) else { return false }
+        guard visit.attachedToAppointmentId == nil else { return false }
+        guard BookingDisplay.isConfirmed(visit) else { return false }
+        guard visit.terminalPayment?.isSettled != true else { return false }
+        guard let iso = visit.bookingTime,
+              let start = BookingDisplay.iso8601Date(from: iso) else {
+            return false
+        }
+        return start > Date()
     }
 
     private var canChargeNoShow: Bool {
@@ -110,6 +126,8 @@ struct AppointmentDetailSheet: View {
                             extras: liveExtras,
                             chairMins: ChairDuration.displayedMinutes(for: liveAppointment),
                             catalogueMins: liveAppointment.catalogueDurationMins,
+                            parentLabel: BookingDisplay.appointmentServiceLabel(liveAppointment),
+                            timeRangeLabel: BookingDisplay.formattedDetailTimeRange(for: liveAppointment),
                             canEdit: !isReadOnly && BookingDisplay.isConfirmed(liveAppointment),
                             isBusy: extraBusy || isBusy,
                             errorMessage: extraError,
@@ -127,8 +145,12 @@ struct AppointmentDetailSheet: View {
                             appointment: liveAppointment,
                             payment: $livePayment,
                             knownAppointments: knownAppointments,
-                            onPaymentChanged: { payment, ids in
-                                liveAppointmentUpdated(payment: payment, ids: ids)
+                            onPaymentChanged: { payment, ids, payments in
+                                liveAppointmentUpdated(
+                                    payment: payment,
+                                    ids: ids,
+                                    payments: payments
+                                )
                             }
                         )
                     }
@@ -191,6 +213,17 @@ struct AppointmentDetailSheet: View {
                 onBack: { showReschedule = false },
                 onSuccess: {
                     showReschedule = false
+                    onMutated()
+                    onDismiss()
+                }
+            )
+        }
+        .fullScreenCover(isPresented: $showChangeService) {
+            ChangeServiceView(
+                appointment: liveAppointment,
+                onBack: { showChangeService = false },
+                onSuccess: {
+                    showChangeService = false
                     onMutated()
                     onDismiss()
                 }
@@ -274,39 +307,44 @@ struct AppointmentDetailSheet: View {
     // MARK: - Cards
 
     private var clientCard: some View {
-        Button {
-            openClientProfile()
-        } label: {
-            AdminDetailCard {
-                VStack(alignment: .leading, spacing: 10) {
-                    sectionLabel("Client", icon: "person")
+        AdminDetailCard {
+            VStack(alignment: .leading, spacing: 10) {
+                sectionLabel("Client", icon: "person")
 
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(BookingDisplay.clientDisplayName(
-                            first: appointment.clientFirstName,
-                            last: appointment.clientLastName
-                        ))
-                        .font(AdminTheme.fontAdminSerif(size: 22))
-                        .foregroundStyle(AdminTheme.stone900)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(BookingDisplay.clientDisplayName(
+                        first: appointment.clientFirstName,
+                        last: appointment.clientLastName
+                    ))
+                    .font(AdminTheme.fontAdminSerif(size: 22))
+                    .foregroundStyle(AdminTheme.stone900)
 
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(AdminTheme.stone500)
-                    }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(AdminTheme.stone500)
+                }
 
-                    if let phone = appointment.clientPhone, !phone.isEmpty {
-                        detailLine(icon: "phone", text: Client(id: "preview", phone: phone).formattedPhone)
-                    }
+                if let phone = appointment.clientPhone, !phone.isEmpty {
+                    CopyablePhoneButton(
+                        phone: phone,
+                        font: AdminTheme.fontAdminSans(size: 14),
+                        iconPointSize: 12,
+                        spacing: 8
+                    )
+                }
 
-                    if let email = appointment.clientEmail, !email.isEmpty {
-                        detailLine(icon: "envelope", text: email)
-                    }
+                if let email = appointment.clientEmail, !email.isEmpty {
+                    detailLine(icon: "envelope", text: email)
                 }
             }
         }
-        .buttonStyle(.plain)
-        .disabled(appointment.clientPhone?.filter(\.isNumber).isEmpty ?? true)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            openClientProfile()
+        }
+        .accessibilityAddTraits(.isButton)
         .opacity(appointment.clientPhone?.filter(\.isNumber).isEmpty ?? true ? 0.55 : 1)
+        .allowsHitTesting(!(appointment.clientPhone?.filter(\.isNumber).isEmpty ?? true))
     }
 
     private var timeCard: some View {
@@ -406,30 +444,44 @@ struct AppointmentDetailSheet: View {
         VStack(spacing: 0) {
             Divider().overlay(AdminTheme.stone200)
 
-            HStack(spacing: 8) {
-                actionButton(
-                    title: "Reschedule",
-                    style: .neutral,
-                    disabled: !canReschedule || isBusy
-                ) {
-                    openReschedule()
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    if canChangeService {
+                        actionButton(
+                            title: "Change service",
+                            style: .neutral,
+                            disabled: isBusy
+                        ) {
+                            showChangeService = true
+                        }
+                    }
+
+                    actionButton(
+                        title: "Reschedule",
+                        style: .neutral,
+                        disabled: !canReschedule || isBusy
+                    ) {
+                        openReschedule()
+                    }
                 }
 
-                actionButton(
-                    title: statusAction?.isNoShow == true ? "Saving…" : "No-show",
-                    style: .amber,
-                    disabled: isBusy
-                ) {
-                    showNoShowConfirm = true
-                }
+                HStack(spacing: 8) {
+                    actionButton(
+                        title: statusAction?.isNoShow == true ? "Saving…" : "No-show",
+                        style: .amber,
+                        disabled: isBusy
+                    ) {
+                        showNoShowConfirm = true
+                    }
 
-                actionButton(
-                    title: statusAction == .cancel ? "Canceling…" : "Cancel",
-                    style: .destructive,
-                    disabled: isBusy
-                ) {
-                    cancelSendSms = true
-                    showCancelConfirm = true
+                    actionButton(
+                        title: statusAction == .cancel ? "Canceling…" : "Cancel",
+                        style: .destructive,
+                        disabled: isBusy
+                    ) {
+                        cancelSendSms = true
+                        showCancelConfirm = true
+                    }
                 }
             }
             .padding(.horizontal, AdminTheme.Spacing.listHorizontal)
@@ -487,13 +539,18 @@ struct AppointmentDetailSheet: View {
 
     private func liveAppointmentUpdated(
         payment: AppointmentPaymentSummary?,
-        ids: [String]
+        ids: [String],
+        payments: [AppointmentPaymentSummary]?
     ) {
-        let patched = liveAppointment.withPatchedPayments(ids: ids, payment: payment)
+        let patched = liveAppointment.withPatchedPayments(
+            ids: ids,
+            payment: payment,
+            payments: payments
+        )
         liveVisit = patched
         livePayment = patched.terminalPayment
         liveExtras = patched.extras
-        onPaymentMutated(payment, ids)
+        onPaymentMutated(payment, ids, payments)
     }
 
     private func applyVisit(_ visit: Appointment) {

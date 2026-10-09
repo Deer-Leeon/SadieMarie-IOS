@@ -500,7 +500,7 @@ struct ClientIdentityPayload: Encodable, Sendable {
     }
 }
 
-/// `PATCH /api/admin/clients/{id}` — Google review SMS + star rating.
+/// `PATCH /api/admin/clients/{id}` — post-visit review toggle + star rating.
 struct PatchClientReviewFlagsPayload: Encodable, Sendable {
     var reviewRequestPending: Bool?
     var googleReviewStars: Int?
@@ -574,16 +574,20 @@ struct AppointmentStatusPatchBody: Encodable, Sendable {
     let status: String
     /// When `status` is `no-show`, `true` charges 100% off-session; `false` marks no-show without charging (reactivates attention flag).
     let chargeNoShow: Bool?
+    /// When `status` is `canceled_by_admin`, studio SMS to the client. Defaults on; `false` cancels silently.
+    let sendSms: Bool?
 
-    init(status: String, chargeNoShow: Bool? = nil) {
+    init(status: String, chargeNoShow: Bool? = nil, sendSms: Bool? = nil) {
         self.status = status
         self.chargeNoShow = chargeNoShow
+        self.sendSms = sendSms
     }
 
     nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(status, forKey: .status)
         try container.encodeIfPresent(chargeNoShow, forKey: .chargeNoShow)
+        try container.encodeIfPresent(sendSms, forKey: .sendSms)
     }
 
     nonisolated func encodedJSON() throws -> Data {
@@ -593,6 +597,7 @@ struct AppointmentStatusPatchBody: Encodable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case status
         case chargeNoShow
+        case sendSms
     }
 }
 
@@ -624,6 +629,7 @@ struct ReschedulePayload: Encodable, Sendable {
     let newBookingTime: String
     let newEndTime: String?
     let oldCalUid: String?
+    let sendSms: Bool?
 
     nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
@@ -631,6 +637,7 @@ struct ReschedulePayload: Encodable, Sendable {
         try container.encode(newBookingTime, forKey: .newBookingTime)
         try container.encodeIfPresent(newEndTime, forKey: .newEndTime)
         try container.encodeIfPresent(oldCalUid, forKey: .oldCalUid)
+        try container.encodeIfPresent(sendSms, forKey: .sendSms)
     }
 
     nonisolated func encodedJSON() throws -> Data {
@@ -642,27 +649,32 @@ struct ReschedulePayload: Encodable, Sendable {
         case newBookingTime
         case newEndTime
         case oldCalUid
+        case sendSms
     }
 }
 
 struct AdminReschedulePayload: Encodable, Sendable {
     let start: String
     let eventTypeId: Int
+    let sendSms: Bool?
 
     nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(start, forKey: .start)
         try container.encode(eventTypeId, forKey: .eventTypeId)
+        try container.encodeIfPresent(sendSms, forKey: .sendSms)
     }
 
     nonisolated func encodedJSON() throws -> Data {
-        // CamelCase — matches web/admin JSON.stringify payloads.
+        // CamelCase for start/eventTypeId — matches web/admin JSON.stringify.
+        // `send_sms` is snake_case to match the admin API flag.
         try JSONEncoder().encode(self)
     }
 
     private enum CodingKeys: String, CodingKey {
         case start
         case eventTypeId
+        case sendSms = "send_sms"
     }
 }
 

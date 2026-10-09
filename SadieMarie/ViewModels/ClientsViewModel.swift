@@ -10,7 +10,10 @@ final class ClientsViewModel {
     private(set) var hasLoaded = false
     private(set) var isLoading = false
     private(set) var errorMessage: String?
-    private let inFlightLoad = InFlightLoad()
+    private(set) var refreshNotice: RefreshNotice?
+    private let refresh = RefreshCoordinator()
+
+    var hasSuccessfulLoad: Bool { refresh.hasSuccessfulLoad }
 
     var searchQuery = ""
     var sortBy: ClientSortOption = .name
@@ -32,41 +35,40 @@ final class ClientsViewModel {
     var totalCount: Int { clients.count }
     var filteredCount: Int { filteredClients.count }
 
-    func load(showLoading: Bool = true) async {
-        if !hasLoaded {
-            await SessionKeepAlive.waitUntilReadyForAPI()
-        }
+    func load(showLoading: Bool = true, reason: RefreshReason = .initial) async {
         let blockUI = showLoading && !hasLoaded
         if blockUI {
             isLoading = true
             errorMessage = nil
         }
 
-        await inFlightLoad.run { [weak self] in
-            await self?.performLoad()
+        let outcome = await refresh.load(reason: reason, applyNotice: { [weak self] notice in
+            self?.refreshNotice = notice
+        }) { [weak self] in
+            guard let self else { return .cancelled }
+            return await self.performLoad()
         }
         isLoading = false
-        hasLoaded = true
+        switch outcome {
+        case .success, .failed:
+            hasLoaded = true
+        case .skipped, .cancelled:
+            break
+        }
     }
 
-    private func performLoad() async {
+    private func performLoad() async -> RefreshAttemptOutcome {
         do {
             let fetched = try await AdminAPIClient.shared.fetchClients()
             clients = fetched
             errorMessage = nil
             AppLogger.syncInfo("Loaded \(clients.count) clients.")
+            return .success
         } catch is CancellationError {
-            return
-        } catch let error as AdminAPIError {
-            AppLogger.syncError("fetchClients failed: \(error.localizedDescription)")
-            if clients.isEmpty {
-                errorMessage = message(for: error)
-            }
+            return .cancelled
         } catch {
             AppLogger.syncError("fetchClients failed: \(error.localizedDescription)")
-            if clients.isEmpty {
-                errorMessage = error.localizedDescription
-            }
+            return .failed(error)
         }
     }
 
@@ -101,7 +103,7 @@ final class ClientsViewModel {
     private func message(for error: AdminAPIError) -> String {
         switch error {
         case .unauthorized, .noActiveSession:
-            return error.localizedDescription
+            return "Please sign in again."
         case .forbidden:
             return "You’re signed in but don’t have admin access."
         case .decoding:

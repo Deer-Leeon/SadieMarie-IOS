@@ -60,9 +60,13 @@ enum SessionKeepAlive {
         _ = try? await AdminAPIClient.clerkSessionToken()
     }
 
+    /// How long to wait for Clerk to put the session back after a resume.
+    private static let sessionAppearTimeout: TimeInterval = 3
+
     @MainActor
     private static func performRun() async {
         UIApplication.shared.registerForRemoteNotifications()
+        await waitForReappearingSession()
 
         guard let session = Clerk.shared.session else { return }
 
@@ -79,6 +83,21 @@ enum SessionKeepAlive {
         }
 
         await PushRegistration.shared.syncIfSignedIn()
+    }
+
+    /// A resume can observe a nil session for a moment while Clerk is still
+    /// signed in. Wait briefly instead of failing the first request. A real
+    /// sign-out (`isLoaded` and no user) does not wait.
+    @MainActor
+    private static func waitForReappearingSession() async {
+        guard Clerk.shared.session == nil else { return }
+        let stillSignedIn = !Clerk.shared.isLoaded || Clerk.shared.user != nil
+        guard stillSignedIn else { return }
+        let deadline = Date().addingTimeInterval(sessionAppearTimeout)
+        while Clerk.shared.session == nil, Date() < deadline, !Task.isCancelled {
+            if Clerk.shared.isLoaded, Clerk.shared.user == nil { return }
+            try? await Task.sleep(for: .milliseconds(200))
+        }
     }
 
     private static func handleAppRefresh(_ task: BGAppRefreshTask) {

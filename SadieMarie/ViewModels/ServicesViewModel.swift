@@ -11,46 +11,46 @@ final class ServicesViewModel {
     private(set) var isSubmitting = false
     private(set) var archivingId: Int?
     private(set) var errorMessage: String?
-    private let inFlightLoad = InFlightLoad()
+    private(set) var refreshNotice: RefreshNotice?
+    private let refresh = RefreshCoordinator()
 
     var groupedCategories: [ServiceCategorySection] {
         ServiceCatalog.groupedCategories(from: services)
     }
 
-    func load(showLoading: Bool = true) async {
-        if !hasLoaded {
-            await SessionKeepAlive.waitUntilReadyForAPI()
-        }
+    func load(showLoading: Bool = true, reason: RefreshReason = .initial) async {
         let blockUI = showLoading && !hasLoaded
         if blockUI {
             isLoading = true
             errorMessage = nil
         }
 
-        await inFlightLoad.run { [weak self] in
-            await self?.performLoad()
+        let outcome = await refresh.load(reason: reason, applyNotice: { [weak self] notice in
+            self?.refreshNotice = notice
+        }) { [weak self] in
+            guard let self else { return .cancelled }
+            return await self.performLoad()
         }
         isLoading = false
-        hasLoaded = true
+        switch outcome {
+        case .success, .failed:
+            hasLoaded = true
+        case .skipped, .cancelled:
+            break
+        }
     }
 
-    private func performLoad() async {
+    private func performLoad() async -> RefreshAttemptOutcome {
         do {
             services = try await AdminAPIClient.shared.fetchServices()
             errorMessage = nil
             AppLogger.syncInfo("Loaded \(services.count) services.")
+            return .success
         } catch is CancellationError {
-            return
-        } catch let error as AdminAPIError {
-            AppLogger.syncError("fetchServices failed: \(error.localizedDescription)")
-            if services.isEmpty {
-                errorMessage = message(for: error)
-            }
+            return .cancelled
         } catch {
             AppLogger.syncError("fetchServices failed: \(error.localizedDescription)")
-            if services.isEmpty {
-                errorMessage = error.localizedDescription
-            }
+            return .failed(error)
         }
     }
 
@@ -130,7 +130,7 @@ final class ServicesViewModel {
     private func message(for error: AdminAPIError) -> String {
         switch error {
         case .unauthorized, .noActiveSession:
-            return error.localizedDescription
+            return "Please sign in again."
         case .forbidden:
             return "You’re signed in but don’t have admin access."
         case .decoding:

@@ -70,9 +70,17 @@ struct ClientSmsHistoryPopup: View {
                 Text(clientName)
                     .font(AdminTheme.fontAdminSerif(size: 20))
                     .foregroundStyle(AdminTheme.stone900)
-                Text("Sent to \(displayPhone(phoneLabel.isEmpty ? clientPhone : phoneLabel))")
-                    .font(AdminTheme.fontAdminSans(size: 13))
-                    .foregroundStyle(AdminTheme.stone600)
+                HStack(spacing: 4) {
+                    Text("Sent to")
+                        .font(AdminTheme.fontAdminSans(size: 13))
+                        .foregroundStyle(AdminTheme.stone600)
+                    CopyablePhoneButton(
+                        phone: phoneLabel.isEmpty ? clientPhone : phoneLabel,
+                        font: AdminTheme.fontAdminSans(size: 13),
+                        color: AdminTheme.stone600,
+                        icon: nil
+                    )
+                }
             }
             Spacer(minLength: 8)
             Button(action: onClose) {
@@ -161,11 +169,12 @@ struct ClientSmsHistoryPopup: View {
                     .foregroundStyle(AdminTheme.stone500)
                     .monospacedDigit()
             }
-            Text(displayPhone(row.to))
-                .font(AdminTheme.fontAdminSans(size: 11, weight: .medium))
-                .tracking(0.8)
-                .foregroundStyle(AdminTheme.stone500)
-                .textCase(.uppercase)
+            CopyablePhoneButton(
+                phone: row.to,
+                font: AdminTheme.fontAdminSans(size: 11, weight: .medium),
+                color: AdminTheme.stone500,
+                icon: nil
+            )
             Text(row.body)
                 .font(AdminTheme.fontAdminSans(size: 14))
                 .foregroundStyle(AdminTheme.stone700)
@@ -178,11 +187,6 @@ struct ClientSmsHistoryPopup: View {
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 10))
         }
-    }
-
-    private func displayPhone(_ raw: String) -> String {
-        let formatted = Client(id: "sms", phone: raw).formattedPhone
-        return formatted.isEmpty ? (raw.isEmpty ? "Unknown number" : raw) : formatted
     }
 
     private func formattedTimestamp(_ iso: String) -> String {

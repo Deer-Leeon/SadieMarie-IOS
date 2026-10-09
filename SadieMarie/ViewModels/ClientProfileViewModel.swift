@@ -441,11 +441,15 @@ final class ClientProfileViewModel {
         applyPayment(appointmentIds: [appointmentId], payment: payment)
     }
 
-    func applyPayment(appointmentIds: [String], payment: AppointmentPaymentSummary?) {
-        guard !appointmentIds.isEmpty else { return }
-        let ids = Set(appointmentIds)
+    func applyPayment(
+        appointmentIds: [String],
+        payment: AppointmentPaymentSummary?,
+        payments: [AppointmentPaymentSummary]? = nil
+    ) {
+        let ids = appointmentIds
+        guard !ids.isEmpty || payments?.isEmpty == false else { return }
         history = history.map { appointment in
-            appointment.withPatchedPayments(ids: Array(ids), payment: payment)
+            appointment.withPatchedPayments(ids: ids, payment: payment, payments: payments)
         }
     }
 
@@ -467,7 +471,8 @@ final class ClientProfileViewModel {
 
         do {
             let historyResponse = try await historyTask
-            history = historyResponse.appointments.filter { !$0.isAttachedExtra }
+            history = Appointment.nestAttachedExtras(historyResponse.appointments)
+                .filter { !$0.isAttachedExtra }
             crmStats = historyResponse.crmStats
             if let existing = client {
                 client = Client(

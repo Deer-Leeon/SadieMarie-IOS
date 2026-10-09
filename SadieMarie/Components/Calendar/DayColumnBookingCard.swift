@@ -62,9 +62,12 @@ struct DayColumnBookingCard: View {
         return blockHeight >= 36
     }
 
+    private var hasExtras: Bool { !appointment.extras.isEmpty }
+
     /// Tall enough (or 3-day width) to include the service name in details.
     private var includeService: Bool {
-        if compactOverlap { return false }
+        if compactOverlap || peekingUnder { return false }
+        if hasExtras { return canStackTwoLines }
         if denseColumns {
             return canStackTwoLines && (durationMinutes >= 45 || blockHeight >= 48)
         }
@@ -213,32 +216,55 @@ struct DayColumnBookingCard: View {
                     .minimumScaleFactor(denseColumns ? 0.65 : 0.7)
                     .strikethrough(isNoShow, color: textColors.secondary)
             }
+
+            extraNameLines
         }
     }
 
     /// Short blocks: put details on the same line as the name (esp. 3-day).
     private var inlineContent: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 0) {
-            Text(clientName)
-                .font(AdminTheme.fontAdminSans(
-                    size: isWeekStyle ? 8 : (denseColumns ? 11 : 10),
-                    weight: .semibold
-                ))
-                .foregroundStyle(textColors.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(denseColumns ? 0.6 : 0.7)
-                .strikethrough(isNoShow, color: textColors.secondary)
-                .layoutPriority(1)
-
-            if !detailBits.isEmpty {
-                Text(" · \(detailBits)")
-                    .font(AdminTheme.fontAdminSans(size: isWeekStyle ? 7.5 : (denseColumns ? 9 : 9)))
-                    .foregroundStyle(textColors.secondary)
+        VStack(alignment: .leading, spacing: isWeekStyle ? 1 : 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 0) {
+                Text(clientName)
+                    .font(AdminTheme.fontAdminSans(
+                        size: isWeekStyle ? 8 : (denseColumns ? 11 : 10),
+                        weight: .semibold
+                    ))
+                    .foregroundStyle(textColors.primary)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.65)
+                    .minimumScaleFactor(denseColumns ? 0.6 : 0.7)
+                    .strikethrough(isNoShow, color: textColors.secondary)
+                    .layoutPriority(1)
+
+                if !detailBits.isEmpty {
+                    Text(" · \(detailBits)")
+                        .font(AdminTheme.fontAdminSans(size: isWeekStyle ? 7.5 : (denseColumns ? 9 : 9)))
+                        .foregroundStyle(textColors.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                        .strikethrough(isNoShow, color: textColors.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            extraNameLines
+        }
+    }
+
+    @ViewBuilder
+    private var extraNameLines: some View {
+        if hasExtras, !peekingUnder {
+            ForEach(appointment.extras) { extra in
+                Text("+ \(BookingDisplay.appointmentServiceLabel(extra))")
+                    .font(AdminTheme.fontAdminSans(
+                        size: isWeekStyle ? 8 : (denseColumns ? 10 : 9),
+                        weight: .semibold
+                    ))
+                    .foregroundStyle(textColors.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                     .strikethrough(isNoShow, color: textColors.secondary)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

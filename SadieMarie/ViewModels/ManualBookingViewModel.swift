@@ -377,15 +377,24 @@ final class ManualBookingViewModel {
     }
 
     func slotIsOccupied(_ slotIsoUtc: String) -> Bool {
-        guard let ms = ManualBookingSlotsParser.epochMs(isoUtc: slotIsoUtc) else {
+        guard let startMs = ManualBookingSlotsParser.epochMs(isoUtc: slotIsoUtc) else {
             return false
         }
-        if occupiedStartMs.contains(ms) {
+        if occupiedStartMs.contains(startMs) {
             return true
         }
+        var slotMins = selectedService?.durationMins ?? 15
+        if slotMins <= 0 { slotMins = 15 }
+        let endMs = startMs + Int64(slotMins) * 60_000
         return pendingVisits.contains { visit in
             if visit.id == editingVisitId { return false }
-            return ManualBookingSlotsParser.epochMs(isoUtc: visit.slotIsoUtc) == ms
+            guard let visitStart = ManualBookingSlotsParser.epochMs(isoUtc: visit.slotIsoUtc) else {
+                return false
+            }
+            var visitMins = visit.service.durationMins ?? 15
+            if visitMins <= 0 { visitMins = 15 }
+            let visitEnd = visitStart + Int64(visitMins) * 60_000
+            return startMs < visitEnd && endMs > visitStart
         }
     }
 

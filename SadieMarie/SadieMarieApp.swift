@@ -79,8 +79,11 @@ private struct AppRootContent: View {
     @State private var showSplash = true
     @State private var splashStartedAt = Date()
     @State private var didScheduleDismiss = false
+    @State private var splashDeadlineReached = false
 
     private static let minimumSplashDuration: TimeInterval = 0.7
+    /// Signed-in logo hold after Clerk is ready; covers a sleeping backend.
+    private static let signedInSplashDeadline: TimeInterval = 8
     private static let revealAnimation = Animation.spring(response: 0.72, dampingFraction: 0.86)
     /// Grow the mark in place (image-view center = screen center).
     private static let dismissLogoScale: CGFloat = 1.18
@@ -89,10 +92,14 @@ private struct AppRootContent: View {
         clerk.user != nil && clerk.session != nil
     }
 
+    private var signedInSplashTaskID: String {
+        "\(clerk.isLoaded)-\(isSignedIn)"
+    }
+
     private var isLaunchReady: Bool {
         guard clerk.isLoaded else { return false }
         if isSignedIn {
-            return bookingsViewModel.hasLoaded
+            return bookingsViewModel.hasLoaded || splashDeadlineReached
         }
         return true
     }
@@ -135,6 +142,7 @@ private struct AppRootContent: View {
             guard signedIn, !showSplash, !bookingsViewModel.hasLoaded else { return }
             showSplash = true
             didScheduleDismiss = false
+            splashDeadlineReached = false
             splashStartedAt = Date().addingTimeInterval(-Self.minimumSplashDuration)
             considerDismissingSplash()
         }
@@ -145,13 +153,21 @@ private struct AppRootContent: View {
             guard phase == .active else { return }
             Task {
                 await SessionKeepAlive.run()
-                if clerk.session != nil {
-                    PushRegistration.shared.requestLiveDataRefresh()
-                }
+            if clerk.user != nil {
+                PushRegistration.shared.requestLiveDataRefresh()
+            }
             }
         }
         .task {
             await SessionKeepAlive.run()
+        }
+        .task(id: signedInSplashTaskID) {
+            guard clerk.isLoaded, isSignedIn, showSplash else { return }
+            splashDeadlineReached = false
+            try? await Task.sleep(for: .seconds(Self.signedInSplashDeadline))
+            guard !Task.isCancelled, showSplash else { return }
+            splashDeadlineReached = true
+            considerDismissingSplash()
         }
     }
 

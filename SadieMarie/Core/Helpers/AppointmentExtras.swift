@@ -25,6 +25,27 @@ extension Appointment {
             ? "1 extra during this visit."
             : "\(count) extras during this visit."
     }
+
+    /// Fold child extras onto their parent visit and drop them from the
+    /// top-level list so calendars never treat extras as their own bookings.
+    static func nestAttachedExtras(_ appointments: [Appointment]) -> [Appointment] {
+        var extrasByParent: [String: [Appointment]] = [:]
+        var parents: [Appointment] = []
+        parents.reserveCapacity(appointments.count)
+
+        for appointment in appointments {
+            if let parentId = appointment.attachedToAppointmentId, !parentId.isEmpty {
+                extrasByParent[parentId, default: []].append(appointment.withExtras([]))
+            } else {
+                parents.append(appointment)
+            }
+        }
+
+        return parents.map { parent in
+            let extras = extrasByParent[parent.id] ?? parent.extras
+            return extras.isEmpty ? parent : parent.withExtras(extras)
+        }
+    }
 }
 
 struct ChargeLine: Identifiable, Hashable, Sendable {

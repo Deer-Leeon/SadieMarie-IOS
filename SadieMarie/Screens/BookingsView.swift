@@ -14,7 +14,7 @@ struct BookingsView: View {
     /// True while this tab is selected. Live-polls only while visible.
     var isSelected: Bool = true
 
-    private static let livePollInterval: Duration = .seconds(10)
+    private static let livePollInterval: Duration = .seconds(60)
 
     enum CalendarMode: String, CaseIterable, Identifiable, Hashable {
         case list = "List"
@@ -96,6 +96,12 @@ struct BookingsView: View {
                         notificationsDeniedBanner
                     }
 
+                    if let notice = viewModel.refreshNotice {
+                        RefreshNoticeText(notice: notice)
+                            .padding(.horizontal, AppLayout.screenPadding)
+                            .padding(.bottom, 4)
+                    }
+
                     if let errorMessage = viewModel.errorMessage {
                         errorBanner(errorMessage)
                     }
@@ -116,8 +122,7 @@ struct BookingsView: View {
             .task(id: clerk.session?.id) {
                 guard clerk.session != nil else { return }
                 if !viewModel.hasLoaded {
-                    await SessionKeepAlive.waitUntilReadyForAPI()
-                    await viewModel.load()
+                    await viewModel.load(reason: .initial)
                 }
                 await openPendingPushAppointmentIfNeeded()
             }
@@ -129,12 +134,12 @@ struct BookingsView: View {
                 Task { await openPendingPushAppointmentIfNeeded() }
             }
             .onChange(of: pushRegistration.liveDataRevision) { _, _ in
-                Task { await reloadCalendar(showLoading: false) }
+                Task { await reloadCalendar(showLoading: false, reason: .resume) }
             }
             .onChange(of: tabVisitID) { _, _ in
                 mode = .week
                 Task {
-                    await reloadCalendar(showLoading: false)
+                    await reloadCalendar(showLoading: false, reason: .resume)
                 }
             }
             .onChange(of: appState.lastNoShowFlagPatch?.revision) { _, revision in
@@ -161,12 +166,13 @@ struct BookingsView: View {
                     onDismiss: { selectedAppointment = nil },
                     onMutated: {
                         selectedAppointment = nil
-                        Task { await viewModel.load() }
+                        Task { await viewModel.load(showLoading: false, reason: .resume) }
                     },
-                    onPaymentMutated: { payment, ids in
+                    onPaymentMutated: { payment, ids, payments in
                         viewModel.applyPayment(
                             appointmentIds: ids.isEmpty ? [appointment.id] : ids,
-                            payment: payment
+                            payment: payment,
+                            payments: payments
                         )
                     },
                     onVisitUpdated: { visit in
@@ -247,7 +253,7 @@ struct BookingsView: View {
                     bookingDate: focus.date,
                     onClose: { manualBookingFocus = nil },
                     onSuccess: {
-                        Task { await viewModel.load() }
+                        Task { await viewModel.load(showLoading: false, reason: .resume) }
                     }
                 )
                 .presentationBackground(AdminTheme.cream)
@@ -259,7 +265,7 @@ struct BookingsView: View {
                     bookingsViewModel: viewModel,
                     onClose: { slotAction = nil },
                     onBooked: {
-                        Task { await viewModel.load() }
+                        Task { await viewModel.load(showLoading: false, reason: .resume) }
                     },
                     onBlocked: {
                         slotAction = nil
@@ -280,17 +286,17 @@ struct BookingsView: View {
         case .list:
             BookingsListView(
                 appointments: viewModel.visibleAppointments,
-                showsEmptyState: viewModel.errorMessage == nil,
+                showsEmptyState: viewModel.errorMessage == nil && viewModel.refreshNotice != .pullToTryAgain,
                 onSelectAppointment: { selectedAppointment = $0 }
             )
-            .refreshable { await reloadCalendar(showLoading: false) }
+            .refreshable { await reloadCalendar(showLoading: false, reason: .user) }
         case .threeDay, .week:
             bookingsCalendar
                 .scrollDisabled(true)
                 .scrollBounceBehavior(.basedOnSize)
         case .month:
             bookingsCalendar
-                .refreshable { await reloadCalendar(showLoading: false) }
+                .refreshable { await reloadCalendar(showLoading: false, reason: .user) }
         }
     }
 
@@ -402,9 +408,9 @@ struct BookingsView: View {
     }
 
     @MainActor
-    private func reloadCalendar(showLoading: Bool) async {
-        guard clerk.session != nil else { return }
-        await viewModel.load(showLoading: showLoading)
+    private func reloadCalendar(showLoading: Bool, reason: RefreshReason) async {
+        guard clerk.user != nil else { return }
+        await viewModel.load(showLoading: showLoading, reason: reason)
         await openPendingPushAppointmentIfNeeded()
     }
 
@@ -417,8 +423,9 @@ struct BookingsView: View {
             } catch {
                 return
             }
-            guard !Task.isCancelled, clerk.session != nil, isSelected else { return }
-            await viewModel.load(showLoading: false)
+            guard !Task.isCancelled, isSelected else { return }
+            guard clerk.user != nil else { return }
+            await viewModel.load(showLoading: false, reason: .poll)
         }
     }
 
@@ -430,7 +437,7 @@ struct BookingsView: View {
             _ = pushRegistration.consumePendingOpenAppointmentId()
             return
         }
-        await viewModel.load()
+        await viewModel.load(showLoading: false, reason: .resume)
         if let found = viewModel.appointments.first(where: { $0.id == appointmentId }) {
             selectedAppointment = found
         }

@@ -22,11 +22,24 @@ struct SiteImageSlot: Codable, Identifiable, Hashable, Equatable, Sendable {
     let id: String
     let imageURL: String?
     let caption: String?
+    let altText: String?
+    let fileName: String?
+    let photoSubject: String?
 
-    nonisolated init(id: String, imageURL: String? = nil, caption: String? = nil) {
+    nonisolated init(
+        id: String,
+        imageURL: String? = nil,
+        caption: String? = nil,
+        altText: String? = nil,
+        fileName: String? = nil,
+        photoSubject: String? = nil
+    ) {
         self.id = id
         self.imageURL = imageURL
         self.caption = caption
+        self.altText = altText
+        self.fileName = fileName
+        self.photoSubject = photoSubject
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -50,6 +63,9 @@ struct SiteImageSlot: Codable, Identifiable, Hashable, Equatable, Sendable {
             ?? container.decodeIfPresent(String.self, forKey: .imageURLSnake)
             ?? container.decodeIfPresent(String.self, forKey: .uploadURL)
         caption = try container.decodeIfPresent(String.self, forKey: .caption)
+        altText = try container.decodeIfPresent(String.self, forKey: .altText)
+        fileName = try container.decodeIfPresent(String.self, forKey: .fileName)
+        photoSubject = try container.decodeIfPresent(String.self, forKey: .photoSubject)
     }
 
     nonisolated func encode(to encoder: Encoder) throws {
@@ -57,6 +73,9 @@ struct SiteImageSlot: Codable, Identifiable, Hashable, Equatable, Sendable {
         try container.encode(id, forKey: .id)
         try container.encodeIfPresent(imageURL, forKey: .imageURL)
         try container.encodeIfPresent(caption, forKey: .caption)
+        try container.encodeIfPresent(altText, forKey: .altText)
+        try container.encodeIfPresent(fileName, forKey: .fileName)
+        try container.encodeIfPresent(photoSubject, forKey: .photoSubject)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -65,6 +84,9 @@ struct SiteImageSlot: Codable, Identifiable, Hashable, Equatable, Sendable {
         case imageURLSnake = "image_url"
         case uploadURL = "url"
         case caption
+        case altText
+        case fileName
+        case photoSubject
     }
 
     /// HTML default labels for portfolio tiles on the public site.
@@ -91,23 +113,36 @@ struct SiteImageSlot: Codable, Identifiable, Hashable, Equatable, Sendable {
     }
 }
 
-// MARK: - PATCH caption
+// MARK: - PATCH slot
 
+/// JSON body for `PATCH /api/admin/website/settings`.
+/// Keys stay camelCase (`altText`) because that route reads those names.
 struct PatchWebsiteSlotRequest: Sendable {
     let id: String
-    let caption: String
-}
+    var caption: String?
+    var includesCaption = false
+    var altText: String?
+    var includesAltText = false
+    var fileName: String?
+    var includesFileName = false
+    var photoSubject: String?
+    var includesPhotoSubject = false
 
-extension PatchWebsiteSlotRequest: Encodable {
-    nonisolated func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        try container.encode(caption, forKey: .caption)
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id
-        case caption
+    nonisolated func jsonData() throws -> Data {
+        var payload: [String: String] = ["id": id]
+        if includesCaption {
+            payload["caption"] = caption ?? ""
+        }
+        if includesAltText {
+            payload["altText"] = altText ?? ""
+        }
+        if includesFileName {
+            payload["fileName"] = fileName ?? ""
+        }
+        if includesPhotoSubject {
+            payload["photoSubject"] = photoSubject ?? ""
+        }
+        return try JSONSerialization.data(withJSONObject: payload)
     }
 }
 
@@ -195,6 +230,9 @@ struct SiteImageUploadResponse: Decodable, Sendable {
     let url: String?
     let slotId: String?
     let caption: String?
+    let altText: String?
+    let fileName: String?
+    let photoSubject: String?
 
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -206,6 +244,9 @@ struct SiteImageUploadResponse: Decodable, Sendable {
             ?? slot?.imageURL
         slotId = try container.decodeIfPresent(String.self, forKey: .slotId)
         caption = try container.decodeIfPresent(String.self, forKey: .caption)
+        altText = try container.decodeIfPresent(String.self, forKey: .altText)
+        fileName = try container.decodeIfPresent(String.self, forKey: .fileName)
+        photoSubject = try container.decodeIfPresent(String.self, forKey: .photoSubject)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -214,6 +255,9 @@ struct SiteImageUploadResponse: Decodable, Sendable {
         case url
         case slotId = "id"
         case caption
+        case altText
+        case fileName
+        case photoSubject
     }
 
     nonisolated var resolvedImageURL: String? {

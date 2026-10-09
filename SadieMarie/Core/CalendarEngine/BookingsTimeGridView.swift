@@ -213,10 +213,12 @@ struct BookingsTimeGridView: View {
                 end: end
             )
             let cardHeight = isWeekStyle ? max(height, 18) : height
-            let lane = TimelineEngine.cascadeLaneFrame(
+            let cascadeOverlap = positioned.totalCols > 1 && !positioned.sideBySide
+            let lane = TimelineEngine.overlapLaneFrame(
                 col: positioned.col,
                 totalCols: positioned.totalCols,
-                columnWidth: columnWidth
+                columnWidth: columnWidth,
+                sideBySide: positioned.sideBySide
             )
 
             calendarAppointmentButton(
@@ -233,9 +235,10 @@ struct BookingsTimeGridView: View {
                         blockHeight: cardHeight,
                         hourHeight: hourHeight,
                         durationMinutes: durationMinutes,
-                        compactOverlap: positioned.totalCols > 1,
-                        isOverlapping: positioned.totalCols > 1,
-                        overlapCol: positioned.col
+                        compactOverlap: cascadeOverlap,
+                        isOverlapping: cascadeOverlap,
+                        overlapCol: positioned.col,
+                        denseColumns: positioned.sideBySide
                     )
                 }
             )

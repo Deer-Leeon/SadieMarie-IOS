@@ -10,9 +10,23 @@ enum AdminPushPayload {
         stringValue("bookingUid", from: userInfo)
     }
 
+    static func clientId(from userInfo: [AnyHashable: Any]) -> String? {
+        stringValue("clientId", from: userInfo)
+    }
+
+    static func kind(from userInfo: [AnyHashable: Any]) -> String? {
+        stringValue("kind", from: userInfo)
+    }
+
     /// True for the admin “new booking confirmed” payload (not a pending hold).
     static func isConfirmedBookingPush(_ userInfo: [AnyHashable: Any]) -> Bool {
-        appointmentId(from: userInfo) != nil || bookingUid(from: userInfo) != nil
+        if isConsentSignedPush(userInfo) { return false }
+        return appointmentId(from: userInfo) != nil || bookingUid(from: userInfo) != nil
+    }
+
+    /// Signed intake form. The banner is the APNs alert; this flag is for the tap.
+    static func isConsentSignedPush(_ userInfo: [AnyHashable: Any]) -> Bool {
+        kind(from: userInfo) == "consent_signed"
     }
 
     static func hexDeviceToken(_ deviceToken: Data) -> String {

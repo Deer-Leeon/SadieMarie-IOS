@@ -43,6 +43,7 @@ struct MultipartFormDataBuilder: Sendable {
         id: String,
         imageData: Data,
         caption: String?,
+        photo: SiteImagePhotoFields?,
         format: WebsiteUploadFileFormat
     ) -> (body: Data, contentType: String) {
         var form = MultipartFormDataBuilder()
@@ -56,17 +57,11 @@ struct MultipartFormDataBuilder: Sendable {
         if let caption {
             form.appendField(name: "caption", value: caption)
         }
-        return (form.finalize(), form.contentType)
-    }
-
-    /// Caption-only update — `id` + `caption` fields (no file) for `POST /api/upload`.
-    nonisolated static func makeSiteImageCaptionOnly(
-        id: String,
-        caption: String
-    ) -> (body: Data, contentType: String) {
-        var form = MultipartFormDataBuilder()
-        form.appendField(name: "id", value: id)
-        form.appendField(name: "caption", value: caption)
+        if let photo {
+            form.appendField(name: "altText", value: photo.altText)
+            form.appendField(name: "fileName", value: photo.fileName)
+            form.appendField(name: "photoSubject", value: photo.photoSubject)
+        }
         return (form.finalize(), form.contentType)
     }
 

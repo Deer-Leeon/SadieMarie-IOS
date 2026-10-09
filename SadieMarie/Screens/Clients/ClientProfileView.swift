@@ -189,11 +189,12 @@ struct ClientProfileView: View {
                         selectedAppointment = nil
                         Task { await viewModel.reloadDossier() }
                     },
-                    onPaymentMutated: { payment, ids in
+                    onPaymentMutated: { payment, ids, payments in
                         historyMutated = true
                         viewModel.applyPayment(
                             appointmentIds: ids.isEmpty ? [appointment.id] : ids,
-                            payment: payment
+                            payment: payment,
+                            payments: payments
                         )
                     },
                     onVisitUpdated: { visit in
@@ -294,7 +295,12 @@ struct ClientProfileView: View {
 
                 if let client = viewModel.client {
                     if let phone = client.phone, !phone.isEmpty {
-                        identityLine(icon: "phone", text: client.formattedPhone)
+                        CopyablePhoneButton(
+                            phone: phone,
+                            font: AdminTheme.fontAdminSans(size: 14),
+                            iconPointSize: 12,
+                            spacing: 8
+                        )
                     }
                     if let email = client.email, !email.isEmpty {
                         identityLine(icon: "envelope", text: email)
@@ -1179,13 +1185,12 @@ struct ClientProfileView: View {
                 } else {
                     BookingsDayGroupedList(
                         appointments: upcomingHistory,
-                        onSelectAppointment: { selectedAppointment = $0 },
-                        showsNestedExtras: true
+                        onSelectAppointment: { selectedAppointment = $0 }
                     )
                 }
 
                 if !pastHistory.isEmpty {
-                    ShowPastAppointmentsButton {
+                    ShowPastAppointmentsButton(chevronUp: false) {
                         showPastAppointments = true
                     }
                 }

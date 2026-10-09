@@ -87,9 +87,18 @@ struct ClientSendSmsConfirmPopup: View {
                 Text(clientName.isEmpty ? "This client" : clientName)
                     .font(AdminTheme.fontAdminSans(size: 15, weight: .medium))
                     .foregroundStyle(AdminTheme.stone900)
-                Text(displayPhone)
-                    .font(AdminTheme.fontAdminSans(size: 12))
-                    .foregroundStyle(AdminTheme.stone500)
+                if clientPhone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("Unknown number")
+                        .font(AdminTheme.fontAdminSans(size: 12))
+                        .foregroundStyle(AdminTheme.stone500)
+                } else {
+                    CopyablePhoneButton(
+                        phone: clientPhone,
+                        font: AdminTheme.fontAdminSans(size: 12),
+                        color: AdminTheme.stone500,
+                        icon: nil
+                    )
+                }
             }
             Text(copy.body)
                 .font(AdminTheme.fontAdminSans(size: 14))
@@ -174,16 +183,9 @@ struct ClientSendSmsConfirmPopup: View {
         case .reviewRequest:
             return (
                 "Send review text?",
-                "They will get a general Google review request by text — no service name — with the usual rates and STOP / HELP footer. “Ask after next visit” will turn off so a scheduled send does not go out too."
+                "They will get a general Google review request by text — no service name — with the usual rates and STOP / HELP footer. “Ask after next visit” will turn off. The automatic 30-minute thank-you still goes; it just will not ask for a review again."
             )
         }
-    }
-
-    private var displayPhone: String {
-        if clientPhone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Unknown number"
-        }
-        return clientPhone
     }
 
     @MainActor

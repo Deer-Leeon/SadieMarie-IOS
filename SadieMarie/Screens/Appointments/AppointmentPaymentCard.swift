@@ -7,15 +7,15 @@ struct AppointmentPaymentCard: View {
     let appointment: Appointment
     @Binding var payment: AppointmentPaymentSummary?
     var knownAppointments: [Appointment] = []
-    var onPaymentChanged: (AppointmentPaymentSummary?, [String]) -> Void
+    var onPaymentChanged: (AppointmentPaymentSummary?, [String], [AppointmentPaymentSummary]?) -> Void
 
     @State private var showTerminal = false
     @State private var settlementMethod: AppointmentSettlementMethod?
     @State private var note = ""
     @State private var isSubmitting = false
     @State private var errorMessage: String?
-    @State private var showUndoConfirmation = false
-    @State private var pendingPatches: [(AppointmentPaymentSummary?, [String])] = []
+    @State private var undoTarget: SettlementUndo?
+    @State private var pendingApply: PendingSettlementApply?
     @State private var siblings: [SameDayUnsettledVisit] = []
     @State private var selectedExtraIds: Set<String> = []
 
@@ -28,8 +28,12 @@ struct AppointmentPaymentCard: View {
         BookingDisplay.isConfirmed(appointment)
     }
 
+    private var chargeAppointment: Appointment {
+        appointment.withTerminalPayment(payment)
+    }
+
     private var chargeLines: [ChargeLine] {
-        AppointmentChargePlan.lines(for: appointment)
+        AppointmentChargePlan.lines(for: chargeAppointment)
     }
 
     private var chargeTotalCents: Int {
@@ -41,22 +45,23 @@ struct AppointmentPaymentCard: View {
     }
 
     private var showsUnsettledBox: Bool {
-        appointment.terminalPayment?.isSettled != true || !appointment.unpaidExtras.isEmpty
+        payment?.isSettled != true || !chargeAppointment.unpaidExtras.isEmpty
     }
 
     private var settledExtras: [Appointment] {
-        appointment.extras.filter { $0.terminalPayment?.isSettled == true }
+        chargeAppointment.extras.filter { $0.terminalPayment?.isSettled == true }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let succeededPayment, appointment.terminalPayment?.isSettled == true {
-                settlementBanner(succeededPayment)
+            if let succeededPayment {
+                settlementBanner(succeededPayment, undoAppointmentId: appointment.id)
                 ForEach(settledExtras) { extra in
                     if let extraPayment = extra.terminalPayment, extraPayment.isSettled {
                         settlementBanner(
                             extraPayment,
-                            heading: "\(BookingDisplay.appointmentServiceLabel(extra)) · done during this visit"
+                            heading: "\(BookingDisplay.appointmentServiceLabel(extra)) · done during this visit",
+                            undoAppointmentId: extra.id
                         )
                     }
                 }
@@ -71,11 +76,11 @@ struct AppointmentPaymentCard: View {
                 appointment: appointment.withTerminalPayment(payment),
                 initialPayment: payment,
                 knownAppointments: knownAppointments,
-                chargeAppointmentId: AppointmentChargePlan.chargeTargetId(for: appointment),
-                includedVisitIds: AppointmentChargePlan.forcedAdditionalIds(for: appointment),
+                chargeAppointmentId: AppointmentChargePlan.chargeTargetId(for: chargeAppointment),
+                includedVisitIds: AppointmentChargePlan.forcedAdditionalIds(for: chargeAppointment),
                 chargeLines: chargeLines,
                 onPaymentChanged: { updated, ids in
-                    commitPayment(updated, relatedIds: ids)
+                    commitPayment(updated, relatedIds: ids, payments: nil)
                 },
                 onClose: { showTerminal = false }
             )
@@ -89,18 +94,23 @@ struct AppointmentPaymentCard: View {
         }
         .confirmationDialog(
             "Undo settlement?",
-            isPresented: $showUndoConfirmation,
+            isPresented: Binding(
+                get: { undoTarget != nil },
+                set: { if !$0 { undoTarget = nil } }
+            ),
             titleVisibility: .visible
         ) {
             Button(
-                "Undo \(BookingDisplay.settlementLabel(for: payment) ?? "settlement")",
+                "Undo \(BookingDisplay.settlementLabel(for: undoTarget?.payment) ?? "settlement")",
                 role: .destructive
             ) {
-                Task { await undoSettlement() }
+                if let undoTarget {
+                    Task { await undoSettlement(undoTarget) }
+                }
             }
             Button("Keep settlement", role: .cancel) {}
         } message: {
-            Text("The appointment will return to unpaid. Card payments can only be refunded in Stripe.")
+            Text("This charge returns to unpaid. Other charges on the visit stay as they are. Card payments can only be refunded in Stripe.")
         }
     }
 
@@ -115,7 +125,7 @@ struct AppointmentPaymentCard: View {
 
                 Text(
                     isConfirmed
-                        ? (appointment.terminalPayment?.isSettled == true
+                        ? (payment?.isSettled == true
                             ? "New extra · done during this visit"
                             : "Choose how this appointment was settled.")
                         : "Only confirmed appointments can be settled."
@@ -185,7 +195,8 @@ struct AppointmentPaymentCard: View {
 
     private func settlementBanner(
         _ payment: AppointmentPaymentSummary,
-        heading: String? = nil
+        heading: String? = nil,
+        undoAppointmentId: String
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
@@ -225,7 +236,10 @@ struct AppointmentPaymentCard: View {
 
             if BookingDisplay.canUndoSettlement(payment) {
                 Button {
-                    showUndoConfirmation = true
+                    undoTarget = SettlementUndo(
+                        appointmentId: undoAppointmentId,
+                        payment: payment
+                    )
                 } label: {
                     Text(isSubmitting ? "UNDOING…" : "UNDO SETTLEMENT")
                         .font(AdminTheme.fontAdminSans(size: 11, weight: .medium))
@@ -409,8 +423,9 @@ struct AppointmentPaymentCard: View {
         errorMessage = nil
         defer { isSubmitting = false }
 
-        let extras = AppointmentChargePlan.forcedAdditionalIds(for: appointment) + Array(selectedExtraIds)
-        let chargeId = AppointmentChargePlan.chargeTargetId(for: appointment)
+        let snapshot = chargeAppointment
+        let extras = AppointmentChargePlan.forcedAdditionalIds(for: snapshot) + Array(selectedExtraIds)
+        let chargeId = AppointmentChargePlan.chargeTargetId(for: snapshot)
         do {
             let result = try await AdminAPIClient.shared.settleAppointment(
                 appointmentId: chargeId,
@@ -418,20 +433,16 @@ struct AppointmentPaymentCard: View {
                 note: note,
                 additionalAppointmentIds: extras
             )
-            if result.succeeded, let payments = result.response.payments, !payments.isEmpty {
-                pendingPatches = paymentPatches(from: payments, extras: extras, chargeId: chargeId)
-                settlementMethod = nil
-                return
-            }
-            if result.succeeded, let updated = result.response.payment {
-                pendingPatches = [(updated, [chargeId] + extras)]
-                settlementMethod = nil
-                return
-            }
-            if let updated = result.response.payment, updated.isSettled {
-                pendingPatches = [(updated, [chargeId] + extras)]
-                settlementMethod = nil
-                return
+            if result.succeeded {
+                let settled = settledPayments(from: result.response, chargeId: chargeId)
+                if !settled.isEmpty {
+                    pendingApply = PendingSettlementApply(
+                        payments: settled,
+                        parentPayment: settled.first { $0.appointmentId == appointment.id }
+                    )
+                    settlementMethod = nil
+                    return
+                }
             }
             errorMessage = result.response.message ?? "Could not save this settlement."
             settlementMethod = nil
@@ -441,21 +452,41 @@ struct AppointmentPaymentCard: View {
         }
     }
 
-    private func paymentPatches(
-        from payments: [AppointmentPaymentSummary],
-        extras: [String],
+    /// Rows the server actually settled. A lone summary applies only to its
+    /// own appointment, never to every extra or sibling that was requested.
+    private func settledPayments(
+        from response: SettlementAPIResponse,
         chargeId: String
-    ) -> [(AppointmentPaymentSummary?, [String])] {
-        if payments.count == 1 {
-            return [(payments[0], [chargeId] + extras)]
-        }
-        return payments.map { payment in
-            (payment, [payment.appointmentId ?? chargeId])
+    ) -> [AppointmentPaymentSummary] {
+        let rows = (response.payments?.isEmpty == false ? response.payments : nil) ?? {
+            guard let payment = response.payment else { return [] }
+            return [payment]
+        }()
+        return rows.compactMap { row in
+            guard row.isSettled else { return nil }
+            if row.appointmentId?.isEmpty == false { return row }
+            return AppointmentPaymentSummary(
+                id: row.id,
+                appointmentId: chargeId,
+                paymentKind: row.paymentKind,
+                paymentIntentId: row.paymentIntentId,
+                readerId: row.readerId,
+                status: row.status,
+                currency: row.currency,
+                baseAmountCents: row.baseAmountCents,
+                tipAmountCents: row.tipAmountCents,
+                totalAmountCents: row.totalAmountCents,
+                failureCode: row.failureCode,
+                failureMessage: row.failureMessage,
+                note: row.note,
+                settledByEmail: row.settledByEmail,
+                paidAt: row.paidAt
+            )
         }
     }
 
     @MainActor
-    private func undoSettlement() async {
+    private func undoSettlement(_ target: SettlementUndo) async {
         guard !isSubmitting else { return }
         isSubmitting = true
         errorMessage = nil
@@ -463,14 +494,15 @@ struct AppointmentPaymentCard: View {
 
         do {
             let result = try await AdminAPIClient.shared.undoAppointmentSettlement(
-                appointmentId: appointment.id
+                appointmentId: target.appointmentId
             )
             if result.succeeded {
-                commitPayment(nil, relatedIds: [appointment.id])
+                commitPayment(nil, relatedIds: [target.appointmentId], payments: nil)
             } else if let updated = result.response.payment {
                 commitPayment(
                     updated.isSettled ? updated : nil,
-                    relatedIds: [appointment.id]
+                    relatedIds: [target.appointmentId],
+                    payments: nil
                 )
                 errorMessage = result.response.message
             } else {
@@ -482,20 +514,34 @@ struct AppointmentPaymentCard: View {
     }
 
     private func flushPendingPaymentApply() {
-        guard !pendingPatches.isEmpty else { return }
-        let patches = pendingPatches
-        pendingPatches = []
-        for (updated, ids) in patches {
-            commitPayment(updated, relatedIds: ids)
-        }
+        guard let pending = pendingApply else { return }
+        pendingApply = nil
+        let ids = pending.payments.compactMap(\.appointmentId)
+        commitPayment(pending.parentPayment, relatedIds: ids, payments: pending.payments)
     }
 
-    private func commitPayment(_ updated: AppointmentPaymentSummary?, relatedIds: [String]) {
+    private func commitPayment(
+        _ updated: AppointmentPaymentSummary?,
+        relatedIds: [String],
+        payments: [AppointmentPaymentSummary]?
+    ) {
         if relatedIds.contains(appointment.id) {
-            payment = updated
+            if payments == nil || updated != nil {
+                payment = updated
+            }
         }
-        onPaymentChanged(updated, relatedIds)
+        onPaymentChanged(updated, relatedIds, payments)
     }
+}
+
+private struct PendingSettlementApply {
+    let payments: [AppointmentPaymentSummary]
+    let parentPayment: AppointmentPaymentSummary?
+}
+
+private struct SettlementUndo {
+    let appointmentId: String
+    let payment: AppointmentPaymentSummary
 }
 
 extension AppointmentSettlementMethod: Identifiable {

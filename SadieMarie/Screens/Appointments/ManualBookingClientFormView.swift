@@ -170,44 +170,46 @@ struct ManualBookingClientFormView: View {
 
     private func directoryClientRow(_ client: Client) -> some View {
         let selected = viewModel.selectedDirectoryClient?.id == client.id
-        return Button {
+        return HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(client.displayName)
+                    .font(AdminTheme.fontAdminSans(size: 14, weight: .medium))
+                    .foregroundStyle(selected ? AdminTheme.cream : AdminTheme.stone900)
+                if let phone = client.phone, !phone.isEmpty {
+                    CopyablePhoneButton(
+                        phone: phone,
+                        font: AdminTheme.fontAdminSans(size: 12),
+                        color: selected ? AdminTheme.stone300 : AdminTheme.stone500,
+                        icon: nil
+                    )
+                }
+                if let email = ClientEmail.usableDisplay(client.email) {
+                    Text(email)
+                        .font(AdminTheme.fontAdminSans(size: 12))
+                        .foregroundStyle(selected ? AdminTheme.stone300 : AdminTheme.stone500)
+                }
+            }
+            Spacer(minLength: 8)
+            if selected {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(AdminTheme.cream)
+            }
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(selected ? AdminTheme.stone900 : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .contentShape(Rectangle())
+        .onTapGesture {
             var transaction = Transaction()
             transaction.animation = nil
             withTransaction(transaction) {
                 viewModel.selectDirectoryClient(client)
             }
-        } label: {
-            HStack(alignment: .center, spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(client.displayName)
-                        .font(AdminTheme.fontAdminSans(size: 14, weight: .medium))
-                        .foregroundStyle(selected ? AdminTheme.cream : AdminTheme.stone900)
-                    let subtitle = [
-                        client.formattedPhone.isEmpty ? nil : client.formattedPhone,
-                        ClientEmail.usableDisplay(client.email),
-                    ].compactMap { $0 }.joined(separator: " · ")
-                    if !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(AdminTheme.fontAdminSans(size: 12))
-                            .foregroundStyle(selected ? AdminTheme.stone300 : AdminTheme.stone500)
-                    }
-                }
-                Spacer(minLength: 8)
-                if selected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(AdminTheme.cream)
-                }
-            }
-            .padding(.vertical, 12)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .background(selected ? AdminTheme.stone900 : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
-        .buttonStyle(.plain)
-        .contentShape(Rectangle())
+        .accessibilityAddTraits(.isButton)
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityHint(selected ? "Deselects this client" : "Selects this client")
     }
@@ -224,13 +226,16 @@ struct ManualBookingClientFormView: View {
             Text(viewModel.clientDisplayName)
                 .font(AdminTheme.fontAdminSerif(size: 20))
                 .foregroundStyle(AdminTheme.stone900)
-            let meta = [
-                viewModel.clientPhone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? nil : viewModel.clientPhone,
-                ClientEmail.usableDisplay(viewModel.clientEmail),
-            ].compactMap { $0 }
-            if !meta.isEmpty {
-                Text(meta.joined(separator: " · "))
+            if !viewModel.clientPhone.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                CopyablePhoneButton(
+                    phone: viewModel.clientPhone,
+                    font: AdminTheme.fontAdminSans(size: 13),
+                    color: AdminTheme.stone600,
+                    icon: nil
+                )
+            }
+            if let email = ClientEmail.usableDisplay(viewModel.clientEmail) {
+                Text(email)
                     .font(AdminTheme.fontAdminSans(size: 13))
                     .foregroundStyle(AdminTheme.stone600)
             }

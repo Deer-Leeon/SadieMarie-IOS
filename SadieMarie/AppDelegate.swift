@@ -107,7 +107,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     ) {
         Task { @MainActor in
             await SessionKeepAlive.run()
-            if AdminPushPayload.isConfirmedBookingPush(userInfo) {
+            if AdminPushPayload.isConfirmedBookingPush(userInfo)
+                || AdminPushPayload.isConsentSignedPush(userInfo) {
                 PushRegistration.shared.handleIncomingBookingPush(userInfo: userInfo)
                 completionHandler(.newData)
             } else {

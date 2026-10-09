@@ -5,15 +5,21 @@ struct SiteImageCardView: View {
     let item: WebsiteSlotItem
     var isUploading: Bool
     var onReplace: () -> Void
+    var onEditDetails: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
+            HStack(spacing: 16) {
                 Text(item.meta.label)
                     .font(AdminTheme.fontAdminSans(size: 14, weight: .medium))
                     .foregroundStyle(AdminTheme.stone900)
 
                 Spacer()
+
+                Button("Details", action: onEditDetails)
+                    .font(AdminTheme.fontAdminSans(size: 12, weight: .medium))
+                    .foregroundStyle(AdminTheme.stone900)
+                    .disabled(isUploading)
 
                 replaceButton
             }

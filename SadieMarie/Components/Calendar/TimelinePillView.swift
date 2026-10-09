@@ -128,12 +128,25 @@ struct TimelinePillView: View {
                 .lineLimit(1)
                 .strikethrough(isNoShow, color: secondaryText)
 
-            Text(subtitleLine)
-                .font(AdminTheme.fontAdminSans(size: 10))
-                .foregroundStyle(secondaryText)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
-                .strikethrough(isNoShow, color: secondaryText)
+            if !subtitleLine.isEmpty {
+                Text(subtitleLine)
+                    .font(AdminTheme.fontAdminSans(size: 10))
+                    .foregroundStyle(secondaryText)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                    .strikethrough(isNoShow, color: secondaryText)
+            }
+
+            if hasExtras, !peekingUnder {
+                ForEach(appointment.extras) { extra in
+                    Text("+ \(BookingDisplay.appointmentServiceLabel(extra))")
+                        .font(AdminTheme.fontAdminSans(size: 10, weight: .semibold))
+                        .foregroundStyle(primaryText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .strikethrough(isNoShow, color: secondaryText)
+                }
+            }
         }
         .padding(6)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -162,6 +175,8 @@ struct TimelinePillView: View {
         .padding(.vertical, 3)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    private var hasExtras: Bool { !appointment.extras.isEmpty }
 
     private var subtitleLine: String {
         if compactOverlap {

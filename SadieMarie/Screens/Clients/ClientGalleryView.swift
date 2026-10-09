@@ -29,11 +29,17 @@ struct ClientGalleryView: View {
                     .tint(AdminTheme.stone900)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let errorMessage, photos.isEmpty {
-                Text(errorMessage)
-                    .font(AdminTheme.fontAdminSans(size: 14))
-                    .foregroundStyle(Color.semanticRed)
-                    .multilineTextAlignment(.center)
-                    .padding()
+                VStack(spacing: 8) {
+                    Text("Something went wrong")
+                        .font(AdminTheme.fontAdminSans(size: 15, weight: .medium))
+                        .foregroundStyle(AdminTheme.stone900)
+                    Text(errorMessage)
+                        .font(AdminTheme.fontAdminSans(size: 14))
+                        .foregroundStyle(Color.semanticRed)
+                        .multilineTextAlignment(.center)
+                }
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if photos.isEmpty {
                 VStack(spacing: 12) {
                     Text("No photos yet")

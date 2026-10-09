@@ -9,11 +9,13 @@ extension AdminAPIClient {
     func updateAppointmentStatus(
         id: String,
         status: String,
-        chargeNoShow: Bool? = nil
+        chargeNoShow: Bool? = nil,
+        sendSms: Bool? = nil
     ) async throws -> AppointmentStatusUpdateResponse {
         let body = try AppointmentStatusPatchBody(
             status: status,
-            chargeNoShow: chargeNoShow
+            chargeNoShow: chargeNoShow,
+            sendSms: sendSms
         ).encodedJSON()
         return try await fetch(
             "appointments/\(id)/status",
@@ -41,15 +43,36 @@ extension AdminAPIClient {
     func adminRescheduleAppointment(
         id: String,
         start: String,
-        eventTypeId: Int
+        eventTypeId: Int,
+        sendSms: Bool = true
     ) async throws -> AdminRescheduleResponse {
         let body = try AdminReschedulePayload(
             start: start,
-            eventTypeId: eventTypeId
+            eventTypeId: eventTypeId,
+            sendSms: sendSms
         ).encodedJSON()
         return try await fetch(
             "appointments/\(id)/admin-reschedule",
             as: AdminRescheduleResponse.self,
+            method: .post,
+            body: body,
+            cachePolicy: .reloadIgnoringLocalCacheData
+        )
+    }
+
+    /// `POST /api/admin/appointments/{id}/change-service` — same start, new service.
+    func changeAppointmentService(
+        id: String,
+        eventTypeId: Int,
+        sendSms: Bool = true
+    ) async throws {
+        let body = try ChangeServicePayload(
+            eventTypeId: eventTypeId,
+            sendSms: sendSms
+        ).encodedJSON()
+        _ = try await fetch(
+            "appointments/\(id)/change-service",
+            as: EmptyJSON.self,
             method: .post,
             body: body,
             cachePolicy: .reloadIgnoringLocalCacheData
@@ -277,7 +300,7 @@ extension AdminAPIClient {
         return response.client
     }
 
-    /// `PATCH /api/admin/clients/{id}` — Google review SMS + star rating.
+    /// `PATCH /api/admin/clients/{id}` — post-visit review toggle + star rating.
     func patchClientReviewFlags(
         id: String,
         reviewRequestPending: Bool? = nil,
@@ -421,6 +444,26 @@ struct ClientPhotoUploadResponse: Decodable, Sendable {
 /// Decodes `{}` or any empty success body from admin PATCH/POST routes.
 private struct EmptyJSON: Decodable, Sendable {
     nonisolated init(from decoder: Decoder) throws {}
+}
+
+private struct ChangeServicePayload: Encodable, Sendable {
+    let eventTypeId: Int
+    let sendSms: Bool
+
+    nonisolated func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(eventTypeId, forKey: .eventTypeId)
+        try container.encode(sendSms, forKey: .sendSms)
+    }
+
+    nonisolated func encodedJSON() throws -> Data {
+        try JSONEncoder().encode(self)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case eventTypeId
+        case sendSms = "send_sms"
+    }
 }
 
 private struct RegisterPushDeviceBody: Encodable, Sendable {

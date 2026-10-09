@@ -4,6 +4,7 @@ import ClerkKit
 /// Availability tab — weekly hours + date overrides (mirrors `/admin/availability`).
 struct AvailabilityView: View {
     @Environment(Clerk.self) private var clerk
+    @Environment(PushRegistration.self) private var pushRegistration
     @Bindable var viewModel: AvailabilityViewModel
 
     var body: some View {
@@ -15,6 +16,10 @@ struct AvailabilityView: View {
                     ScrollView(.vertical, showsIndicators: true) {
                         VStack(alignment: .leading, spacing: AdminTheme.Spacing.sectionBottom) {
                             headerBlock
+
+                            if let notice = viewModel.refreshNotice {
+                                RefreshNoticeText(notice: notice)
+                            }
 
                             if let errorMessage = viewModel.errorMessage {
                                 errorBanner(errorMessage)
@@ -62,11 +67,17 @@ struct AvailabilityView: View {
             }
             .task(id: clerk.session?.id) {
                 guard clerk.session != nil, !viewModel.hasLoaded else { return }
-                await viewModel.load()
+                await viewModel.load(reason: .initial)
+            }
+            .onChange(of: pushRegistration.liveDataRevision) { _, _ in
+                Task {
+                    guard clerk.user != nil else { return }
+                    await viewModel.load(showLoading: false, reason: .resume)
+                }
             }
             .refreshable {
-                guard clerk.session != nil else { return }
-                await viewModel.load(showLoading: false)
+                guard clerk.user != nil else { return }
+                await viewModel.load(showLoading: false, reason: .user)
             }
         }
     }
@@ -118,4 +129,5 @@ struct AvailabilityView: View {
 
 #Preview {
     AvailabilityView(viewModel: AvailabilityViewModel())
+        .environment(PushRegistration.shared)
 }

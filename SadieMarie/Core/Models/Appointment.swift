@@ -325,14 +325,19 @@ extension Appointment {
     }
 
     /// Apply a settlement to this visit and/or nested extras when their ids match.
+    /// When `payments` is present, each visit keeps only the row whose
+    /// `appointmentId` matches. A single summary is never copied onto the others.
     func withPatchedPayments(
         ids: [String],
         payment: AppointmentPaymentSummary?,
         payments: [AppointmentPaymentSummary]? = nil
     ) -> Appointment {
         func resolvedPayment(for id: String, current: AppointmentPaymentSummary?) -> AppointmentPaymentSummary? {
-            if let grouped = payments?.first(where: { $0.appointmentId == id && $0.isSettled }) {
-                return grouped
+            if let payments {
+                if let grouped = payments.first(where: { $0.appointmentId == id && $0.isSettled }) {
+                    return grouped
+                }
+                return current
             }
             return ids.contains(id) ? payment : current
         }

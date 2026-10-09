@@ -119,8 +119,8 @@ struct SingleDayTimelineView: View {
                     isRemoving: removingBlockId == positioned.block.id,
                     onTap: onBlockTap.map { handler in { handler(positioned.block) } }
                 )
-                .frame(width: geometry.size.width - 8, height: height)
-                .offset(x: 4, y: top)
+                .frame(width: geometry.size.width - 4, height: height)
+                .offset(x: 2, y: top)
             }
         }
     }
@@ -171,16 +171,19 @@ struct SingleDayTimelineView: View {
                 col: positioned.col,
                 totalCols: positioned.totalCols,
                 columnWidth: columnWidth,
-                outer: positioned.totalCols > 1 ? 2 : 8,
-                gap: positioned.totalCols > 1 ? 2 : 0
+                outer: 2,
+                gap: 2
             )
+            let overlapping = positioned.totalCols > 1
 
             calendarAppointmentButton(
                 appointment: appointment,
                 cardWidth: lane.width,
                 cardHeight: cardHeight,
                 durationMinutes: durationMinutes,
-                denseColumns: positioned.totalCols > 1,
+                isOverlapping: false,
+                overlapCol: positioned.col,
+                denseColumns: overlapping,
                 hourHeight: hourHeight
             )
             .padding(.leading, lane.leading)
@@ -195,6 +198,8 @@ struct SingleDayTimelineView: View {
         cardWidth: CGFloat,
         cardHeight: CGFloat,
         durationMinutes: Int,
+        isOverlapping: Bool,
+        overlapCol: Int,
         denseColumns: Bool,
         hourHeight: CGFloat
     ) -> some View {
@@ -209,6 +214,8 @@ struct SingleDayTimelineView: View {
                         appointment: appointment,
                         cardHeight: cardHeight,
                         durationMinutes: durationMinutes,
+                        isOverlapping: isOverlapping,
+                        overlapCol: overlapCol,
                         denseColumns: denseColumns,
                         hourHeight: hourHeight
                     )
@@ -222,6 +229,8 @@ struct SingleDayTimelineView: View {
                     appointment: appointment,
                     cardHeight: cardHeight,
                     durationMinutes: durationMinutes,
+                    isOverlapping: isOverlapping,
+                    overlapCol: overlapCol,
                     denseColumns: denseColumns,
                     hourHeight: hourHeight
                 )
@@ -235,6 +244,8 @@ struct SingleDayTimelineView: View {
         appointment: Appointment,
         cardHeight: CGFloat,
         durationMinutes: Int,
+        isOverlapping: Bool,
+        overlapCol: Int,
         denseColumns: Bool,
         hourHeight: CGFloat
     ) -> some View {
@@ -244,6 +255,8 @@ struct SingleDayTimelineView: View {
             blockHeight: cardHeight,
             hourHeight: hourHeight,
             durationMinutes: durationMinutes,
+            isOverlapping: isOverlapping,
+            overlapCol: overlapCol,
             denseColumns: denseColumns
         )
     }

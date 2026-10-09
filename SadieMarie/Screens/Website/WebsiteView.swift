@@ -5,6 +5,7 @@ import ClerkKit
 /// Website tab — manage the seven public site image slots.
 struct WebsiteView: View {
     @Environment(Clerk.self) private var clerk
+    @Environment(PushRegistration.self) private var pushRegistration
     @Bindable var viewModel: WebsiteViewModel
     @State private var pickerItem: PhotosPickerItem?
     @State private var activeSlot: WebsiteSlotItem?
@@ -12,6 +13,7 @@ struct WebsiteView: View {
     @State private var showCropSheet = false
     @State private var isPhotoPickerPresented = false
     @State private var editingPortfolioItem: WebsiteSlotItem?
+    @State private var editingDetailsItem: WebsiteSlotItem?
 
     var body: some View {
         NavigationStack {
@@ -21,6 +23,10 @@ struct WebsiteView: View {
                 ScrollView(.vertical, showsIndicators: true) {
                     VStack(alignment: .leading, spacing: 24) {
                         headerBlock
+
+                        if let notice = viewModel.refreshNotice {
+                            RefreshNoticeText(notice: notice)
+                        }
 
                         if let errorMessage = viewModel.errorMessage {
                             errorBanner(errorMessage)
@@ -50,11 +56,17 @@ struct WebsiteView: View {
             .preferredColorScheme(.light)
             .task(id: clerk.session?.id) {
                 guard clerk.session != nil, !viewModel.hasLoaded else { return }
-                await viewModel.load()
+                await viewModel.load(reason: .initial)
+            }
+            .onChange(of: pushRegistration.liveDataRevision) { _, _ in
+                Task {
+                    guard clerk.user != nil else { return }
+                    await viewModel.load(showLoading: false, reason: .resume)
+                }
             }
             .refreshable {
-                guard clerk.session != nil else { return }
-                await viewModel.load(showLoading: false)
+                guard clerk.user != nil else { return }
+                await viewModel.load(showLoading: false, reason: .user)
             }
             .photosPicker(
                 isPresented: $isPhotoPickerPresented,
@@ -72,15 +84,21 @@ struct WebsiteView: View {
                         aspectRatio: activeSlot.meta.aspectRatio,
                         requiresCaption: activeSlot.meta.requiresCaption,
                         initialCaption: activeSlot.slot.caption ?? "",
+                        services: viewModel.photoServices,
+                        showsPhotoMeta: true,
+                        initialSubject: activeSlot.slot.photoSubject ?? "",
+                        initialAlt: activeSlot.slot.altText ?? "",
+                        initialFileName: activeSlot.slot.fileName ?? "",
                         image: pendingImage,
                         onCancel: dismissCropFlow,
-                        onSave: { data, caption in
+                        onSave: { data, caption, photo in
                             showCropSheet = false
                             Task {
                                 await viewModel.upload(
                                     slotID: activeSlot.id,
                                     imageData: data,
-                                    caption: caption
+                                    caption: caption,
+                                    photo: photo
                                 )
                                 dismissCropFlow()
                             }
@@ -95,6 +113,13 @@ struct WebsiteView: View {
                     onDismiss: { editingPortfolioItem = nil }
                 )
             }
+            .sheet(item: $editingDetailsItem) { item in
+                WebsitePhotoDetailsSheet(
+                    viewModel: viewModel,
+                    item: item,
+                    onDismiss: { editingDetailsItem = nil }
+                )
+            }
         }
     }
 
@@ -104,7 +129,7 @@ struct WebsiteView: View {
                 .font(AdminTheme.fontAdminSerif(size: 28))
                 .foregroundStyle(AdminTheme.stone900)
 
-            Text("Replace hero, about, and portfolio images on sadiemarie.co")
+            Text("Replace photos on sadiemarie.co, and edit each photo’s file name and alt text.")
                 .font(AdminTheme.fontAdminSans(size: 13))
                 .foregroundStyle(AdminTheme.stone700)
         }
@@ -126,7 +151,8 @@ struct WebsiteView: View {
                         SiteImageCardView(
                             item: item,
                             isUploading: viewModel.uploadingSlotID == item.id,
-                            onReplace: { beginReplace(for: item) }
+                            onReplace: { beginReplace(for: item) },
+                            onEditDetails: { editingDetailsItem = item }
                         )
                     }
                 }
@@ -208,4 +234,5 @@ struct WebsiteView: View {
 
 #Preview {
     WebsiteView(viewModel: WebsiteViewModel())
+        .environment(PushRegistration.shared)
 }

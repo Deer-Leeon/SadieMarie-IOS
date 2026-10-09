@@ -53,7 +53,7 @@ enum AdminAPIError: LocalizedError {
         case .decoding:
             return "Couldn’t read the server’s response."
         case .noActiveSession:
-            return "No active Clerk session. Please sign in."
+            return "Please sign in again."
         case .unknown(let error):
             return error.localizedDescription
         }

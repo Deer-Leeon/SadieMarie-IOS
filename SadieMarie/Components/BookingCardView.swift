@@ -8,27 +8,23 @@ struct BookingCardView: View {
     private var textColors: (primary: Color, secondary: Color) {
         BookingDisplay.rowTextColors(for: appointment)
     }
-    private var serviceColors: BookingDisplay.ServiceColor? {
-        BookingDisplay.serviceColor(for: appointment)
-    }
-
-    private var usesServiceBackground: Bool {
-        BookingDisplay.usesServiceColorBackground(appointment)
-    }
 
     private var showsTrailingBadges: Bool {
         !BookingDisplay.isConfirmed(appointment)
             || BookingDisplay.settlementLabel(for: appointment.terminalPayment) != nil
     }
 
-    private var cardBackground: Color {
-        if usesServiceBackground, let serviceColors {
-            return serviceColors.accent
+    private var fillStyle: AnyShapeStyle {
+        if isNoShow {
+            return AnyShapeStyle(AdminTheme.stone50)
+        }
+        if let paint = BookingDisplay.visitBlockPaint(for: appointment) {
+            return paint.shapeStyle
         }
         if BookingDisplay.isPending(appointment) {
-            return AdminTheme.pendingBackground
+            return AnyShapeStyle(AdminTheme.pendingBackground)
         }
-        return AdminTheme.cardFill
+        return AnyShapeStyle(AdminTheme.cardFill)
     }
 
     private var cardBorder: Color {
@@ -69,7 +65,7 @@ struct BookingCardView: View {
         .padding(.horizontal, AdminTheme.Spacing.rowHorizontal)
         .padding(.vertical, AdminTheme.Spacing.rowVertical)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(cardBackground)
+        .background(fillStyle)
         .overlay(
             RoundedRectangle(cornerRadius: AdminTheme.Radius.card)
                 .stroke(cardBorder, lineWidth: 1)
@@ -107,6 +103,17 @@ struct BookingCardView: View {
                 .foregroundStyle(textColors.secondary)
                 .strikethrough(isNoShow, color: textColors.secondary)
                 .lineLimit(2)
+
+            ForEach(appointment.extras) { extra in
+                Text("+ \(BookingDisplay.appointmentServiceLabel(extra))")
+                    .font(AdminTheme.fontAdminSans(
+                        size: AdminTheme.Typography.serviceSubtitleSize,
+                        weight: .semibold
+                    ))
+                    .foregroundStyle(textColors.primary)
+                    .strikethrough(isNoShow, color: textColors.secondary)
+                    .lineLimit(1)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

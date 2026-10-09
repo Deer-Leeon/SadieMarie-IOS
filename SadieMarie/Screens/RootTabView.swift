@@ -95,26 +95,56 @@ struct RootTabView: View {
             guard appointmentId != nil else { return }
             selection = .bookings
         }
+        .onChange(of: pushRegistration.pendingOpenClientId) { _, clientId in
+            guard clientId != nil else { return }
+            selection = .clients
+        }
+        .onChange(of: pushRegistration.liveDataRevision) { _, _ in
+            guard clerk.user != nil else { return }
+            Task { await prefetchTabs(reason: .resume) }
+        }
         .onAppear {
             if pushRegistration.pendingOpenAppointmentId != nil {
                 selection = .bookings
+            } else if pushRegistration.pendingOpenClientId != nil {
+                selection = .clients
             }
         }
         .task(id: clerk.session?.id) {
             guard clerk.session != nil else { return }
             await SessionKeepAlive.waitUntilReadyForAPI()
-            await prefetchTabs()
+            await prefetchTabs(reason: nil)
         }
     }
 
     /// Start every tab's fetch as soon as the session is ready so tapping
     /// Availability / Clients / Website / Services doesn't wait on Cal.
-    private func prefetchTabs() async {
-        async let bookings: Void = bookingsViewModel.load(showLoading: !bookingsViewModel.hasLoaded)
-        async let availability: Void = availabilityViewModel.load(showLoading: !availabilityViewModel.hasLoaded)
-        async let clients: Void = clientsViewModel.load(showLoading: !clientsViewModel.hasLoaded)
-        async let website: Void = websiteViewModel.load(showLoading: !websiteViewModel.hasLoaded)
-        async let services: Void = servicesViewModel.load(showLoading: !servicesViewModel.hasLoaded)
+    /// A nil reason uses resume once that tab has loaded, otherwise the
+    /// first-open retry.
+    private func prefetchTabs(reason explicit: RefreshReason?) async {
+        @Sendable func resolved(hasLoaded: Bool) -> RefreshReason {
+            explicit ?? (hasLoaded ? .resume : .initial)
+        }
+        async let bookings: Void = bookingsViewModel.load(
+            showLoading: !bookingsViewModel.hasLoaded,
+            reason: resolved(hasLoaded: bookingsViewModel.hasLoaded)
+        )
+        async let availability: Void = availabilityViewModel.load(
+            showLoading: !availabilityViewModel.hasLoaded,
+            reason: resolved(hasLoaded: availabilityViewModel.hasLoaded)
+        )
+        async let clients: Void = clientsViewModel.load(
+            showLoading: !clientsViewModel.hasLoaded,
+            reason: resolved(hasLoaded: clientsViewModel.hasLoaded)
+        )
+        async let website: Void = websiteViewModel.load(
+            showLoading: !websiteViewModel.hasLoaded,
+            reason: resolved(hasLoaded: websiteViewModel.hasLoaded)
+        )
+        async let services: Void = servicesViewModel.load(
+            showLoading: !servicesViewModel.hasLoaded,
+            reason: resolved(hasLoaded: servicesViewModel.hasLoaded)
+        )
         _ = await (bookings, availability, clients, website, services)
     }
 }

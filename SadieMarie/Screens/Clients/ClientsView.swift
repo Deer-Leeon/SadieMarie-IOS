@@ -28,6 +28,12 @@ struct ClientsView: View {
                         .padding(.horizontal, AdminTheme.Spacing.listHorizontal)
                         .padding(.bottom, 12)
 
+                    if let notice = viewModel.refreshNotice {
+                        RefreshNoticeText(notice: notice)
+                            .padding(.horizontal, AdminTheme.Spacing.listHorizontal)
+                            .padding(.bottom, 8)
+                    }
+
                     if let errorMessage = viewModel.errorMessage {
                         errorBanner(errorMessage)
                             .padding(.horizontal, AdminTheme.Spacing.listHorizontal)
@@ -50,13 +56,22 @@ struct ClientsView: View {
             }
             .onChange(of: pushRegistration.liveDataRevision) { _, _ in
                 Task {
-                    guard clerk.session != nil else { return }
-                    await viewModel.load(showLoading: false)
+                    guard clerk.user != nil else { return }
+                    await viewModel.load(showLoading: false, reason: .resume)
+                }
+            }
+            .onChange(of: pushRegistration.pendingOpenClientId) { _, clientId in
+                guard clientId != nil else { return }
+                Task { await openPendingPushClientIfNeeded() }
+            }
+            .onAppear {
+                if pushRegistration.pendingOpenClientId != nil {
+                    Task { await openPendingPushClientIfNeeded() }
                 }
             }
             .refreshable {
-                guard clerk.session != nil else { return }
-                await viewModel.load(showLoading: false)
+                guard clerk.user != nil else { return }
+                await viewModel.load(showLoading: false, reason: .user)
             }
             .navigationDestination(item: $selectedClient) { client in
                 ClientProfileView(
@@ -167,7 +182,9 @@ struct ClientsView: View {
     @ViewBuilder
     private var listContent: some View {
         if viewModel.filteredClients.isEmpty {
-            emptyState
+            if viewModel.refreshNotice != .pullToTryAgain {
+                emptyState
+            }
         } else {
             ScrollView {
                 LazyVStack(spacing: AdminTheme.Spacing.cardStack) {
@@ -272,6 +289,18 @@ struct ClientsView: View {
             .padding(.horizontal, 12)
             .background(Color.semanticRed.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: AdminTheme.Radius.card))
+    }
+
+    private func openPendingPushClientIfNeeded() async {
+        guard let clientId = pushRegistration.pendingOpenClientId else { return }
+        let needle = clientId.lowercased()
+        if viewModel.clients.first(where: { $0.id.lowercased() == needle }) == nil {
+            await viewModel.load(showLoading: false, reason: .resume)
+        }
+        if let found = viewModel.clients.first(where: { $0.id.lowercased() == needle }) {
+            selectedClient = found
+        }
+        _ = pushRegistration.consumePendingOpenClientId()
     }
 }
 

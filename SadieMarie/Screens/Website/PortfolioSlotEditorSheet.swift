@@ -8,6 +8,9 @@ struct PortfolioSlotEditorSheet: View {
     let onDismiss: () -> Void
 
     @State private var draftCaption: String
+    @State private var draftSubject: String
+    @State private var draftAlt: String
+    @State private var draftFileName: String
     @State private var draftImage: Data?
     @State private var pickerItem: PhotosPickerItem?
     @State private var pendingImage: UIImage?
@@ -24,6 +27,10 @@ struct PortfolioSlotEditorSheet: View {
         self.item = item
         self.onDismiss = onDismiss
         _draftCaption = State(initialValue: item.slot.caption ?? "")
+        let storedPhoto = SiteImagePhotoFields.stored(from: item.slot)
+        _draftSubject = State(initialValue: storedPhoto.photoSubject)
+        _draftAlt = State(initialValue: storedPhoto.altText)
+        _draftFileName = State(initialValue: storedPhoto.fileName)
     }
 
     var body: some View {
@@ -33,9 +40,22 @@ struct PortfolioSlotEditorSheet: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
+                        if let errorMessage = viewModel.errorMessage {
+                            Text(errorMessage)
+                                .font(AdminTheme.fontAdminSans(size: 14))
+                                .foregroundStyle(Color.semanticRed)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
                         previewSection
                         changeImageButton
                         captionSection
+                        WebsitePhotoMetaFields(
+                            services: viewModel.photoServices,
+                            subject: $draftSubject,
+                            altText: $draftAlt,
+                            fileName: $draftFileName
+                        )
                     }
                     .padding(.horizontal, AdminTheme.Spacing.listHorizontal)
                     .padding(.vertical, AdminTheme.Spacing.listVertical)
@@ -80,7 +100,7 @@ struct PortfolioSlotEditorSheet: View {
                         initialCaption: "",
                         image: pendingImage,
                         onCancel: dismissCropFlow,
-                        onSave: { data, _ in
+                        onSave: { data, _, _ in
                             draftImage = data
                             dismissCropFlow()
                         }
@@ -91,8 +111,20 @@ struct PortfolioSlotEditorSheet: View {
         .preferredColorScheme(.light)
     }
 
+    private var photoDraft: SiteImagePhotoFields {
+        SiteImagePhotoFields(
+            altText: draftAlt,
+            fileName: draftFileName,
+            photoSubject: draftSubject
+        )
+    }
+
+    private var photoDraftDiffersFromStored: Bool {
+        photoDraft != SiteImagePhotoFields.stored(from: item.slot)
+    }
+
     private var canSave: Bool {
-        draftImage != nil || captionDraftDiffersFromStored
+        draftImage != nil || captionDraftDiffersFromStored || photoDraftDiffersFromStored
     }
 
     private var captionDraftDiffersFromStored: Bool {
@@ -191,11 +223,15 @@ struct PortfolioSlotEditorSheet: View {
         let captionForRequest: String? = draftImage != nil || captionDraftDiffersFromStored
             ? draftCaption
             : nil
+        let photoForRequest: SiteImagePhotoFields? = draftImage != nil || photoDraftDiffersFromStored
+            ? photoDraft
+            : nil
 
         await viewModel.saveSlot(
             id: item.id,
             newImage: draftImage,
-            newCaption: captionForRequest
+            newCaption: captionForRequest,
+            photo: photoForRequest
         )
 
         if viewModel.errorMessage == nil {

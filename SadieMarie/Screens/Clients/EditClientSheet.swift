@@ -68,8 +68,12 @@ struct EditClientSheet: View {
 
                     if let phone = client.phone, !phone.isEmpty {
                         fieldBlock(title: "Phone") {
-                            Text(client.formattedPhone)
-                                .foregroundStyle(AdminTheme.stone700)
+                            CopyablePhoneButton(
+                                phone: phone,
+                                font: AdminTheme.fontAdminSans(size: 15),
+                                color: AdminTheme.stone900,
+                                icon: nil
+                            )
                         }
                     }
                 }

@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// Admin god-mode reschedule — same slot picker as New booking
-/// (any day + green/black open-hours dots), not Cal’s public embed.
-struct RescheduleBookingView: View {
+/// Swap the catalogue service on an unpaid upcoming visit.
+/// The start time stays; confirm shows the new name, length, and price.
+struct ChangeServiceView: View {
     let appointment: Appointment
     var onBack: () -> Void
     var onSuccess: () -> Void
 
-    @State private var viewModel: RescheduleViewModel
+    @State private var viewModel: ChangeServiceViewModel
     @State private var expandedGroupIDs: Set<Int> = []
     @State private var sendSms = true
 
@@ -19,7 +19,7 @@ struct RescheduleBookingView: View {
         self.appointment = appointment
         self.onBack = onBack
         self.onSuccess = onSuccess
-        _viewModel = State(initialValue: RescheduleViewModel(appointment: appointment))
+        _viewModel = State(initialValue: ChangeServiceViewModel(appointment: appointment))
     }
 
     var body: some View {
@@ -38,18 +38,15 @@ struct RescheduleBookingView: View {
 
                         if viewModel.isBootstrapping {
                             ManualBookingLoadingPanel(
-                                title: "Loading times",
-                                subtitle: "Preparing open slots for this appointment"
+                                title: "Loading services",
+                                subtitle: "Fetching your bookable menu"
                             )
                         } else {
                             switch viewModel.step {
                             case .service:
                                 serviceStep
-                            case .schedule:
-                                ManualBookingSlotPickerView(
-                                    viewModel: viewModel.booking,
-                                    layout: .compact
-                                )
+                            case .confirm:
+                                confirmStep
                             }
                         }
                     }
@@ -65,13 +62,16 @@ struct RescheduleBookingView: View {
         .preferredColorScheme(.light)
         .task {
             await viewModel.bootstrap()
+            if let groupID = viewModel.groupIDContainingCurrentService() {
+                expandedGroupIDs.insert(groupID)
+            }
         }
     }
 
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
             Button {
-                if viewModel.step == .schedule, viewModel.needsServicePick {
+                if viewModel.step == .confirm {
                     viewModel.goBackToService()
                 } else {
                     onBack()
@@ -80,7 +80,7 @@ struct RescheduleBookingView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 13, weight: .semibold))
-                    Text(viewModel.step == .schedule && viewModel.needsServicePick ? "Service" : "Back")
+                    Text(viewModel.step == .confirm ? "Service" : "Back")
                         .font(AdminTheme.fontAdminSans(size: 12, weight: .semibold))
                         .tracking(1.4)
                         .textCase(.uppercase)
@@ -93,7 +93,7 @@ struct RescheduleBookingView: View {
             Spacer(minLength: 8)
 
             VStack(spacing: 2) {
-                Text("Reschedule")
+                Text("Change service")
                     .font(AdminTheme.fontAdminSans(size: 10, weight: .medium))
                     .tracking(2.4)
                     .foregroundStyle(AdminTheme.stone500)
@@ -116,9 +116,12 @@ struct RescheduleBookingView: View {
             ProgressView()
                 .controlSize(.regular)
                 .tint(AdminTheme.stone900)
-            Text("Moving appointment…")
+            Text("Updating the service…")
                 .font(AdminTheme.fontAdminSans(size: 14))
                 .foregroundStyle(AdminTheme.stone700)
+            Text("The time stays the same.")
+                .font(AdminTheme.fontAdminSans(size: 13))
+                .foregroundStyle(AdminTheme.stone500)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AdminTheme.cream)
@@ -126,7 +129,7 @@ struct RescheduleBookingView: View {
 
     private var serviceStep: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Choose the service for the new time")
+            Text("Choose the new service. The start time stays the same.")
                 .font(AdminTheme.fontAdminSans(size: 13))
                 .foregroundStyle(AdminTheme.stone600)
 
@@ -153,19 +156,61 @@ struct RescheduleBookingView: View {
                     }
                 }
             }
+
+            if viewModel.isCurrentSelection {
+                Text("This visit is already booked as that service.")
+                    .font(AdminTheme.fontAdminSans(size: 13))
+                    .foregroundStyle(AdminTheme.stone500)
+            }
+        }
+    }
+
+    private var confirmStep: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("The start time stays the same.")
+                .font(AdminTheme.fontAdminSans(size: 13))
+                .foregroundStyle(AdminTheme.stone600)
+
+            if let service = viewModel.booking.selectedService {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(service.title)
+                        .font(AdminTheme.fontAdminSerif(size: 22))
+                        .foregroundStyle(AdminTheme.stone900)
+                    Text(service.detailMetaLine)
+                        .font(AdminTheme.fontAdminSans(size: 14))
+                        .foregroundStyle(AdminTheme.stone600)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(AdminTheme.cardFill)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(AdminTheme.stone200, lineWidth: 1)
+                )
+            }
         }
     }
 
     private func serviceRow(_ service: ManualBookingServiceOption) -> some View {
         let selected = viewModel.booking.selectedService?.id == service.id
+        let isCurrent = service.slug == appointment.serviceSlug
         return Button {
             viewModel.selectService(service)
         } label: {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(service.title)
-                        .font(AdminTheme.fontAdminSans(size: 15, weight: .medium))
-                        .foregroundStyle(selected ? AdminTheme.cream : AdminTheme.stone900)
+                    HStack(spacing: 8) {
+                        Text(service.title)
+                            .font(AdminTheme.fontAdminSans(size: 15, weight: .medium))
+                            .foregroundStyle(selected ? AdminTheme.cream : AdminTheme.stone900)
+                        if isCurrent {
+                            Text("CURRENT")
+                                .font(AdminTheme.fontAdminSans(size: 9, weight: .medium))
+                                .tracking(1.2)
+                                .foregroundStyle(selected ? AdminTheme.stone300 : AdminTheme.stone500)
+                        }
+                    }
                     Text(service.detailMetaLine)
                         .font(AdminTheme.fontAdminSans(size: 12))
                         .foregroundStyle(selected ? AdminTheme.stone300 : AdminTheme.stone500)
@@ -183,7 +228,6 @@ struct RescheduleBookingView: View {
                 RoundedRectangle(cornerRadius: 10)
                     .stroke(selected ? AdminTheme.stone900 : AdminTheme.stone200, lineWidth: 1)
             )
-            .shadow(color: selected ? AdminTheme.stone900.opacity(0.18) : .clear, radius: 2, y: 1)
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -212,8 +256,8 @@ struct RescheduleBookingView: View {
             .buttonStyle(.plain)
 
             if expandedGroupIDs.contains(group.id) {
-                ForEach(group.children) { child in
-                    serviceRow(child)
+                ForEach(group.children) { service in
+                    serviceRow(service)
                 }
             }
         }
@@ -222,7 +266,7 @@ struct RescheduleBookingView: View {
     private var footer: some View {
         VStack(spacing: 0) {
             Divider().overlay(AdminTheme.stone200)
-            if viewModel.step == .schedule && !viewModel.isBootstrapping {
+            if viewModel.step == .confirm && !viewModel.isBootstrapping {
                 AdminSendSmsToggle(
                     isOn: $sendSms,
                     disabled: viewModel.isCompleting
@@ -232,7 +276,7 @@ struct RescheduleBookingView: View {
             }
             HStack(spacing: 12) {
                 Button {
-                    if viewModel.step == .schedule, viewModel.needsServicePick {
+                    if viewModel.step == .confirm {
                         viewModel.goBackToService()
                     } else {
                         onBack()
@@ -255,36 +299,22 @@ struct RescheduleBookingView: View {
                 .buttonStyle(.plain)
                 .disabled(viewModel.isCompleting)
 
-                if viewModel.isBootstrapping {
-                    Button {} label: {
-                        Text("Loading…")
-                            .font(AdminTheme.fontAdminSans(size: 12, weight: .semibold))
-                            .tracking(1.2)
-                            .textCase(.uppercase)
-                            .foregroundStyle(AdminTheme.stone500)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(AdminTheme.stone200)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(true)
-                } else if viewModel.step == .service {
+                if viewModel.step == .service || viewModel.isBootstrapping {
                     Button {
-                        Task { await viewModel.advanceToSchedule() }
+                        viewModel.advanceToConfirm()
                     } label: {
-                        Text("Continue")
+                        Text(viewModel.isBootstrapping ? "Loading…" : "Continue")
                             .font(AdminTheme.fontAdminSans(size: 12, weight: .semibold))
                             .tracking(1.2)
                             .textCase(.uppercase)
-                            .foregroundStyle(viewModel.canAdvanceFromService ? AdminTheme.cream : AdminTheme.stone500)
+                            .foregroundStyle(viewModel.canAdvance ? AdminTheme.cream : AdminTheme.stone500)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
-                            .background(viewModel.canAdvanceFromService ? AdminTheme.stone900 : AdminTheme.stone200)
+                            .background(viewModel.canAdvance ? AdminTheme.stone900 : AdminTheme.stone200)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
                     .buttonStyle(.plain)
-                    .disabled(!viewModel.canAdvanceFromService || viewModel.isCompleting)
+                    .disabled(!viewModel.canAdvance || viewModel.isCompleting || viewModel.isBootstrapping)
                 } else {
                     Button {
                         Task {
@@ -292,7 +322,7 @@ struct RescheduleBookingView: View {
                             if ok { onSuccess() }
                         }
                     } label: {
-                        Text(viewModel.isCompleting ? "Saving…" : "Confirm new time")
+                        Text(viewModel.isCompleting ? "Saving…" : "Confirm")
                             .font(AdminTheme.fontAdminSans(size: 12, weight: .semibold))
                             .tracking(1.2)
                             .textCase(.uppercase)
@@ -323,71 +353,50 @@ struct RescheduleBookingView: View {
     }
 }
 
-// MARK: - View model
-
 @MainActor
 @Observable
-final class RescheduleViewModel {
+final class ChangeServiceViewModel {
     enum Step {
         case service
-        case schedule
+        case confirm
     }
 
     let appointment: Appointment
     private(set) var booking: ManualBookingViewModel
-    private(set) var step: Step = .schedule
+    private(set) var step: Step = .service
     private(set) var isBootstrapping = true
     private(set) var isCompleting = false
     private(set) var errorMessage: String?
-    /// When the appointment already has a matching service slug, skip the picker.
-    private(set) var needsServicePick = false
 
     init(appointment: Appointment) {
         self.appointment = appointment
-        let seedDate = appointment.bookingTime
-            .flatMap(BookingDisplay.iso8601Date(from:))
-            ?? Date()
-        self.booking = ManualBookingViewModel(initialDate: seedDate)
+        self.booking = ManualBookingViewModel(initialDate: Date())
     }
 
     var headerTitle: String {
-        if isBootstrapping {
-            let name = appointment.serviceName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            return name.isEmpty ? "Move appointment" : name
-        }
-        if step == .schedule, let service = booking.selectedService {
+        if step == .confirm, let service = booking.selectedService {
             return service.title
         }
-        return "Move appointment"
+        return "Change service"
     }
 
-    var canAdvanceFromService: Bool {
-        booking.selectedService != nil
+    var isCurrentSelection: Bool {
+        guard let slug = appointment.serviceSlug, !slug.isEmpty else { return false }
+        return booking.selectedService?.slug == slug
+    }
+
+    var canAdvance: Bool {
+        booking.selectedService != nil && !isCurrentSelection && !isBootstrapping
     }
 
     var canConfirm: Bool {
-        booking.selectedSlot != nil && booking.selectedService != nil && !isCompleting
+        canAdvance && !isCompleting
     }
 
     func bootstrap() async {
         isBootstrapping = true
         defer { isBootstrapping = false }
-
-        booking.clientFirstName = appointment.clientFirstName ?? ""
-        booking.clientLastName = appointment.clientLastName ?? ""
-        booking.clientPhone = appointment.clientPhone ?? ""
-        booking.clientEmail = ClientEmail.usableDisplay(appointment.clientEmail) ?? ""
-
         await booking.loadServicesIfNeeded()
-        if let slug = appointment.serviceSlug,
-           let match = findService(slug: slug) {
-            needsServicePick = false
-            step = .schedule
-            await booking.prepareSchedule(for: match)
-        } else {
-            needsServicePick = true
-            step = .service
-        }
     }
 
     func selectService(_ service: ManualBookingServiceOption) {
@@ -395,10 +404,10 @@ final class RescheduleViewModel {
         errorMessage = nil
     }
 
-    func advanceToSchedule() async {
-        guard let service = booking.selectedService else { return }
-        await booking.prepareSchedule(for: service)
-        step = .schedule
+    func advanceToConfirm() {
+        guard canAdvance else { return }
+        errorMessage = nil
+        step = .confirm
     }
 
     func goBackToService() {
@@ -406,19 +415,29 @@ final class RescheduleViewModel {
         errorMessage = nil
     }
 
+    func groupIDContainingCurrentService() -> Int? {
+        guard let slug = appointment.serviceSlug, !slug.isEmpty else { return nil }
+        for section in booking.serviceSections {
+            for row in section.rows {
+                if case .group(let group) = row,
+                   group.children.contains(where: { $0.slug == slug }) {
+                    return group.id
+                }
+            }
+        }
+        return nil
+    }
+
     func confirm(sendSms: Bool = true) async -> Bool {
-        guard let service = booking.selectedService,
-              let slot = booking.selectedSlot else { return false }
+        guard let service = booking.selectedService, canAdvance else { return false }
 
         isCompleting = true
         errorMessage = nil
         defer { isCompleting = false }
 
         do {
-            let start = try StudioTime.slotToStudioLocalStart(isoUtc: slot)
-            _ = try await AdminAPIClient.shared.adminRescheduleAppointment(
+            _ = try await AdminAPIClient.shared.changeAppointmentService(
                 id: appointment.id,
-                start: start,
                 eventTypeId: service.eventTypeId,
                 sendSms: sendSms
             )
@@ -437,23 +456,5 @@ final class RescheduleViewModel {
             errorMessage = error.localizedDescription
             return false
         }
-    }
-
-    private func findService(slug: String) -> ManualBookingServiceOption? {
-        for section in booking.serviceSections {
-            for row in section.rows {
-                switch row {
-                case .service(let service) where service.slug == slug:
-                    return service
-                case .group(let group):
-                    if let child = group.children.first(where: { $0.slug == slug }) {
-                        return child
-                    }
-                default:
-                    continue
-                }
-            }
-        }
-        return nil
     }
 }

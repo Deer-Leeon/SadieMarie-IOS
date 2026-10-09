@@ -63,7 +63,7 @@ struct Client: Identifiable, Hashable, Equatable, Sendable {
     let consentFormUrl: String?
     /// ISO 8601 — when an admin stamped “Reviewed by Technician” on the PDF.
     let consentTechnicianReviewedAt: String?
-    /// When true, send a Google review SMS ~30 minutes after the next completed visit.
+    /// When true, the ~30-minute post-visit SMS includes a Google review ask.
     let reviewRequestPending: Bool?
     /// True when `googleReviewStars` is 1...5.
     let googleReviewNoted: Bool?

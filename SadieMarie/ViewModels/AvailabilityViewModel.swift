@@ -18,8 +18,9 @@ final class AvailabilityViewModel {
     private(set) var isLoading = false
     private(set) var isSaving = false
     private(set) var errorMessage: String?
+    private(set) var refreshNotice: RefreshNotice?
     private(set) var saveSuccessMessage: String?
-    private let inFlightLoad = InFlightLoad()
+    private let refresh = RefreshCoordinator()
 
     /// Briefly set after confirming an add so the list can scroll/highlight.
     private(set) var highlightedOverrideId: String?
@@ -66,6 +67,7 @@ final class AvailabilityViewModel {
         if let cached = AvailabilitySnapshotStore.load() {
             apply(cached, capture: true)
             hasLoaded = true
+            refresh.noteExistingContent()
         } else {
             captureSnapshots()
         }
@@ -75,10 +77,7 @@ final class AvailabilityViewModel {
 
     /// - Parameter showLoading: Full-screen overlay. Prefetch and silent
     ///   refresh skip this once hours are already on screen.
-    func load(showLoading: Bool = true) async {
-        if !hasLoaded {
-            await SessionKeepAlive.waitUntilReadyForAPI()
-        }
+    func load(showLoading: Bool = true, reason: RefreshReason = .initial) async {
         let blockUI = showLoading && !hasLoaded
         if blockUI {
             isLoading = true
@@ -87,15 +86,23 @@ final class AvailabilityViewModel {
             highlightedOverrideId = nil
         }
 
-        await inFlightLoad.run { [weak self] in
-            await self?.performLoad()
+        let outcome = await refresh.load(reason: reason, applyNotice: { [weak self] notice in
+            self?.refreshNotice = notice
+        }) { [weak self] in
+            guard let self else { return .cancelled }
+            return await self.performLoad()
         }
         isLoading = false
-        hasLoaded = true
+        switch outcome {
+        case .success, .failed:
+            hasLoaded = true
+        case .skipped, .cancelled:
+            break
+        }
     }
 
-    private func performLoad() async {
-        guard !(hasLoaded && hasUnsavedChanges) else { return }
+    private func performLoad() async -> RefreshAttemptOutcome {
+        guard !(hasLoaded && hasUnsavedChanges) else { return .skipped }
 
         do {
             let response = try await AdminAPIClient.shared.fetchAvailability()
@@ -104,18 +111,12 @@ final class AvailabilityViewModel {
             AppLogger.syncInfo(
                 "Loaded availability (scheduleId=\(scheduleId.map(String.init) ?? "nil"), \(response.schedule.availability.count) blocks, \(response.overrides.count) overrides)."
             )
+            return .success
         } catch is CancellationError {
-            return
-        } catch let error as AdminAPIError {
-            AppLogger.syncError("fetchAvailability failed: \(error.localizedDescription)")
-            if !hasLoaded {
-                errorMessage = message(for: error)
-            }
+            return .cancelled
         } catch {
             AppLogger.syncError("fetchAvailability failed: \(error.localizedDescription)")
-            if !hasLoaded {
-                errorMessage = error.localizedDescription
-            }
+            return .failed(error)
         }
     }
 
@@ -493,7 +494,7 @@ final class AvailabilityViewModel {
     private func message(for error: AdminAPIError) -> String {
         switch error {
         case .unauthorized, .noActiveSession:
-            return error.localizedDescription
+            return "Please sign in again."
         case .forbidden:
             return "You’re signed in but don’t have admin access."
         case .decoding:

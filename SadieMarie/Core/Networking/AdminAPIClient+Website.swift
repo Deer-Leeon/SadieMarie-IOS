@@ -12,42 +12,37 @@ extension AdminAPIClient {
         return response.slots
     }
 
-    /// `POST /api/upload` — replace a site image (multipart: `id`, `file`, optional `caption`).
+    /// `POST /api/upload` — replace a site image (multipart: `id`, `file`, optional caption and photo words).
     @discardableResult
     func uploadSiteImage(
         id: String,
         imageData: Data,
-        caption: String?
+        caption: String?,
+        photo: SiteImagePhotoFields? = nil
     ) async throws -> SiteImageSlot {
         let format = WebsiteUploadFileFormat.detect(from: imageData)
         let formPayload = MultipartFormDataBuilder.makeSiteImageUpload(
             id: id,
             imageData: imageData,
             caption: caption,
+            photo: photo,
             format: format
         )
-        return try await performSiteImageUpload(formPayload: formPayload, id: id, caption: caption)
+        return try await performSiteImageUpload(
+            formPayload: formPayload,
+            id: id,
+            caption: caption,
+            photo: photo
+        )
     }
 
-    /// `PATCH /api/admin/website/settings` — caption-only JSON update (slots without an image yet).
-    ///
-    /// When a slot already has an image, `WebsiteViewModel` saves the caption via `uploadSiteImage`
-    /// instead — production currently returns 405 for JSON updates on `website/settings`.
-    func updateWebsiteSlotCaption(id: String, caption: String) async throws -> SiteImageSlot {
-        let body = try Self.encodePatchWebsiteSlotBody(id: id, caption: caption)
-
-        do {
-            return try await fetchWebsiteSlotCaptionResponse(body: body, method: .patch)
-        } catch let error as AdminAPIError where Self.isMethodNotAllowed(error) {
-            return try await uploadSiteImageCaptionOnly(id: id, caption: caption)
-        }
+    /// `PATCH /api/admin/website/settings` — caption, alt text, file name, or subject, without a new image.
+    func updateWebsiteSlot(_ request: PatchWebsiteSlotRequest) async throws -> SiteImageSlot {
+        let body = try request.jsonData()
+        return try await fetchWebsiteSlotCaptionResponse(body: body, method: .patch)
     }
 
     // MARK: - Private
-
-    nonisolated private static func encodePatchWebsiteSlotBody(id: String, caption: String) throws -> Data {
-        try JSONEncoder().encode(PatchWebsiteSlotRequest(id: id, caption: caption))
-    }
 
     private func fetchWebsiteSlotCaptionResponse(
         body: Data,
@@ -63,16 +58,11 @@ extension AdminAPIClient {
         return response.slot
     }
 
-    /// Caption-only multipart upload when JSON routes do not accept updates yet.
-    private func uploadSiteImageCaptionOnly(id: String, caption: String) async throws -> SiteImageSlot {
-        let formPayload = MultipartFormDataBuilder.makeSiteImageCaptionOnly(id: id, caption: caption)
-        return try await performSiteImageUpload(formPayload: formPayload, id: id, caption: caption)
-    }
-
     private func performSiteImageUpload(
         formPayload: (body: Data, contentType: String),
         id: String,
-        caption: String?
+        caption: String?,
+        photo: SiteImagePhotoFields?
     ) async throws -> SiteImageSlot {
         let uploadURL = siteAPIBaseURL.appendingPathComponent("upload")
 
@@ -93,7 +83,10 @@ extension AdminAPIClient {
                 return SiteImageSlot(
                     id: decoded.slotId ?? id,
                     imageURL: url,
-                    caption: decoded.caption ?? (trimmedCaption?.isEmpty == false ? trimmedCaption : caption)
+                    caption: decoded.caption ?? (trimmedCaption?.isEmpty == false ? trimmedCaption : caption),
+                    altText: decoded.altText ?? photo?.altText.nilIfEmpty,
+                    fileName: decoded.fileName ?? photo?.fileName.nilIfEmpty,
+                    photoSubject: decoded.photoSubject ?? photo?.photoSubject.nilIfEmpty
                 )
             }
         }
@@ -102,7 +95,14 @@ extension AdminAPIClient {
             return slot
         }
 
-        return SiteImageSlot(id: id, imageURL: nil, caption: caption)
+        return SiteImageSlot(
+            id: id,
+            imageURL: nil,
+            caption: caption,
+            altText: photo?.altText.nilIfEmpty,
+            fileName: photo?.fileName.nilIfEmpty,
+            photoSubject: photo?.photoSubject.nilIfEmpty
+        )
     }
 
     nonisolated static func isMethodNotAllowed(_ error: AdminAPIError) -> Bool {
@@ -110,5 +110,12 @@ extension AdminAPIClient {
             return true
         }
         return false
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : self
     }
 }

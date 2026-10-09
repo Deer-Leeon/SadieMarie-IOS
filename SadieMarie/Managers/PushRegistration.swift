@@ -13,6 +13,15 @@ final class PushRegistration {
     static let shared = PushRegistration()
 
     private static let tokenDefaultsKey = "adminPushDeviceToken"
+    private static let registeredTokenDefaultsKey = "adminPushDeviceTokenRegistered"
+    private static let registeredAtDefaultsKey = "adminPushDeviceTokenRegisteredAt"
+
+    /// Every foreground and background refresh used to re-POST the same
+    /// token, waking the website database each time. Re-send only when the
+    /// token changes or this long has passed.
+    private static let reregisterInterval: TimeInterval = 24 * 60 * 60
+
+    private var tokenPostInFlight: String?
 
     /// True when iOS notification authorization is anything other than
     /// `.authorized` — Bookings shows a persistent Open Settings banner.
@@ -20,6 +29,9 @@ final class PushRegistration {
 
     /// Appointment to open after a notification tap. Bookings consumes this.
     var pendingOpenAppointmentId: String?
+
+    /// Client to open after a consent-signed notification tap. Clients consumes this.
+    var pendingOpenClientId: String?
 
     /// Bumped when Bookings / Clients should refetch (new-booking push, app
     /// foreground). Views observe this instead of waiting for a tab switch.
@@ -33,6 +45,12 @@ final class PushRegistration {
         return id
     }
 
+    func consumePendingOpenClientId() -> String? {
+        let id = pendingOpenClientId
+        pendingOpenClientId = nil
+        return id
+    }
+
     func requestLiveDataRefresh() {
         liveDataRevision += 1
     }
@@ -40,11 +58,20 @@ final class PushRegistration {
     /// Banner arrived while the app is open — refresh the calendar immediately.
     /// Does not open the appointment sheet.
     func handleIncomingBookingPush(userInfo: [AnyHashable: Any]) {
-        guard AdminPushPayload.isConfirmedBookingPush(userInfo) else { return }
+        guard AdminPushPayload.isConfirmedBookingPush(userInfo)
+            || AdminPushPayload.isConsentSignedPush(userInfo)
+        else { return }
         requestLiveDataRefresh()
     }
 
     func handleNotificationTap(userInfo: [AnyHashable: Any]) {
+        if AdminPushPayload.isConsentSignedPush(userInfo) {
+            pendingOpenAppointmentId = nil
+            pendingOpenClientId = AdminPushPayload.clientId(from: userInfo)
+            requestLiveDataRefresh()
+            return
+        }
+        pendingOpenClientId = nil
         pendingOpenAppointmentId = AdminPushPayload.appointmentId(from: userInfo)
         if AdminPushPayload.isConfirmedBookingPush(userInfo) {
             requestLiveDataRefresh()
@@ -105,8 +132,10 @@ final class PushRegistration {
         }
         UIApplication.shared.unregisterForRemoteNotifications()
         UserDefaults.standard.removeObject(forKey: Self.tokenDefaultsKey)
+        clearRegisteredMarker()
         needsSystemSettings = false
         pendingOpenAppointmentId = nil
+        pendingOpenClientId = nil
         liveDataRevision = 0
     }
 
@@ -121,6 +150,24 @@ final class PushRegistration {
         return value.count >= 64 ? value.lowercased() : nil
     }
 
+    private func registeredRecently(_ marker: String) -> Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.string(forKey: Self.registeredTokenDefaultsKey) == marker,
+              let at = defaults.object(forKey: Self.registeredAtDefaultsKey) as? Date
+        else { return false }
+        return Date().timeIntervalSince(at) < Self.reregisterInterval
+    }
+
+    private func markRegistered(_ marker: String) {
+        UserDefaults.standard.set(marker, forKey: Self.registeredTokenDefaultsKey)
+        UserDefaults.standard.set(Date(), forKey: Self.registeredAtDefaultsKey)
+    }
+
+    private func clearRegisteredMarker() {
+        UserDefaults.standard.removeObject(forKey: Self.registeredTokenDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: Self.registeredAtDefaultsKey)
+    }
+
     private func postToken(_ hex: String) async {
         guard Clerk.shared.session != nil else { return }
         guard let bundleId = Bundle.main.bundleIdentifier, !bundleId.isEmpty else { return }
@@ -130,14 +177,21 @@ final class PushRegistration {
         let environment = "production"
         #endif
 
+        let token = hex.lowercased()
+        let marker = "\(token)|\(bundleId)|\(environment)"
+        guard !registeredRecently(marker), tokenPostInFlight != marker else { return }
+        tokenPostInFlight = marker
+        defer { tokenPostInFlight = nil }
+
         var delayNanos: UInt64 = 400_000_000
         for attempt in 1...4 {
             do {
                 try await AdminAPIClient.shared.registerPushDevice(
-                    deviceToken: hex.lowercased(),
+                    deviceToken: token,
                     bundleId: bundleId,
                     environment: environment
                 )
+                markRegistered(marker)
                 return
             } catch let error as AdminAPIError where error.isNonRetryableAuthFailure {
                 AppLogger.syncError("Push token register rejected: \(error.localizedDescription)")

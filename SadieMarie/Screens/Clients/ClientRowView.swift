@@ -15,11 +15,11 @@ struct ClientRowView: View {
     }()
 
     var body: some View {
-        Button(action: onSelect) {
-            rowContent
-        }
-        .buttonStyle(.plain)
-        .accessibilityHint("Opens client profile")
+        rowContent
+            .contentShape(RoundedRectangle(cornerRadius: AdminTheme.Radius.card))
+            .onTapGesture(perform: onSelect)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Opens client profile")
     }
 
     private var rowContent: some View {
@@ -78,7 +78,7 @@ struct ClientRowView: View {
         }
 
         if let phone = client.phone, !phone.isEmpty {
-            metadataLine(icon: "phone", text: client.formattedPhone)
+            CopyablePhoneButton(phone: phone)
         }
     }
 
